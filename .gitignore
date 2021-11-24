@@ -139,5 +139,7 @@ dmypy.json
 /.env
 /jokes/
 
+idea/
+
 
 
