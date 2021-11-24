@@ -1,9 +1,7 @@
 from Block import Block
 
 
-# Make the first block of the blockchain
-def genesis():
-    return Block('void', [], 'mima')
+
 
 
 def main():

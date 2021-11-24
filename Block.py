@@ -1,6 +1,10 @@
 import time
 from hashlib import *
 
+# Make the first block of the blockchain
+def genesis():
+    return Block('void', [], 'mima')
+
 
 class Block:
 
