@@ -134,5 +134,10 @@ dmypy.json
 .idea/
 /.idea/
 
+/build/
+/dist/
+/.env
+/jokes/
+
 
 
