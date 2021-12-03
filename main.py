@@ -1,11 +1,8 @@
-from Block import Block
-
-
-
+from Block import *
 
 
 def main():
-    b = Block('1', 'abc', 'noam')
+    b = genesis()
 
     print(str(b))
 

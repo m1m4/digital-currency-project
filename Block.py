@@ -1,15 +1,20 @@
 import time
 from hashlib import *
 
+
 # Make the first block of the blockchain
 def genesis():
-    return Block('void', [], 'mima')
+    return Block('void', [], 'mima', is_genesis=True)
 
 
 class Block:
 
-    def __init__(self, last_hash, data, validator):
-        self.timestamp = time.time()
+    def __init__(self, last_hash, data, validator, is_genesis=False):
+
+        if is_genesis:
+            self.timestamp = 0
+        else:
+            self.timestamp = time.time()
         self.last_hash = last_hash
         self.data = data
         self.validator = validator
