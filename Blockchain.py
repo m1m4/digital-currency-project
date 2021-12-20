@@ -10,17 +10,24 @@ class Blockchain:
     A class that represents the blockchain. It is responsible to manage the blockchain.
     """
 
-    def __init__(self, chain=None):
+    def __init__(self, chain=None, dir=None):
         """
         The __init__ method of the blockchain. Creates a new blockchain with the first block as GENESIS,
         unless given another chain.
 
         :param chain: (dictionary) The blockchain in a dictionary. Default is the first GENESIS block.
+        :param dir: (str) the directory of the blockchain. Default is the directory of this file
         """
         if chain is None:
             self.chain = {1: Constants.GENESIS}
         else:
             self.chain = chain
+
+        # Optional custom directory
+        if dir is None:
+            self.dir = os.path.dirname(os.path.realpath(__file__))
+        else:
+            self.dir = dir
 
     def add_block(self, data, pow):
         """
@@ -53,36 +60,20 @@ class Blockchain:
             if start <= id <= end:
                 print(f'Block #{id}:\n' + str(self.chain.get(id)))
 
-    def save(self, dir=None):
+    def save(self):
         """
         Saves the blockchain to a json file
-
-        :param dir: (str) file directory. Default is the directory of this file
         """
 
-        # Optional custom directory
-        if dir is None:
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-        else:
-            dir_path = dir
-
-        with open(dir_path + r'\blockchain.json', 'w', encoding='utf-8') as file:
+        with open(self.dir + r'\blockchain.json', 'w', encoding='utf-8') as file:
             json.dump(self.chain, file, ensure_ascii=False, indent=4, cls=Block.BlockJSONEncoder)
 
-    def upadate(self, dir=None, *blocks):
+    def update(self, *blocks):
         """
         Updates the blockchain file. if the chain in memory is .
-
-        :param dir: (str) file directory. Default is the directory of this file
         """
 
-        # Optional custom directory
-        if dir is None:
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-        else:
-            dir_path = dir
-
-        with open(dir_path + r'\blockchain.json', mode="r+") as file:
+        with open(self.dir + r'\blockchain.json', mode="r+") as file:
             file.seek(0, 2)
             position = file.tell() - 3
             file.seek(position)
@@ -91,20 +82,12 @@ class Blockchain:
             file.write('}')
 
     # IMPORTANT: load overwrites the blockchain.
-    def load(self, dir=None):
+    def load(self):
         """
         Loads the blockchain from a json file
-
-        :param dir: (optional) file directory. Default is the directory of this file
         """
 
-        # Optional custom directory
-        if dir is None:
-            dir_path = os.path.dirname(os.path.realpath(__file__))
-        else:
-            dir_path = dir
-
-        with open(dir_path + r'\blockchain.json', 'r', encoding='utf-8') as file:
+        with open(self.dir + r'\blockchain.json', 'r', encoding='utf-8') as file:
             temp_chain = json.load(file)
 
             self.chain = dict()

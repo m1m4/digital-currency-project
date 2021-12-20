@@ -25,6 +25,10 @@ class Block:
         else:
             self.hash = hash
 
+    def verify(self, last_block, difficulty):
+        return self.last_hash == last_block.hash and self.hash.startswith(''.zfill(difficulty))
+        # TODO: change the difficulty variable so that is matches the mining process
+
     def __repr__(self):
         return f'Block({self.timestamp}, {self.hash}, {self.last_hash}, {self.data}, {self.pow})'
 
