@@ -1,2 +1,3 @@
 # prototype-coin
-A prototype model for a proof of work cryptocurrency 
+
+A prototype model for a proof of work cryptocurrency
