@@ -141,6 +141,7 @@ dmypy.json
 
 idea/
 blockchain.json
+test.py
 
 
 
