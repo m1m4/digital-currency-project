@@ -2,8 +2,13 @@ import time
 from hashlib import *
 from json import JSONEncoder
 import json
+from dataclasses import dataclass, field
+import binascii
+import mnemonic
+import bip32utils
 
 
+#TODO: convert to dataclass
 # The main block class
 class Block:
 
@@ -26,39 +31,80 @@ class Block:
         return f'Block({self.timestamp}, {self.hash}, {self.last_hash}, {self.data}, {self.pow})'
 
     def __str__(self):
-        return json.dumps(self, ensure_ascii=False, indent=4, cls=BlockJSONEncoder)
+        return json.dumps(self, ensure_ascii=False, indent=4, cls=ClassJSONEncoder)
 
     def verify(self, last_block, difficulty):
         return self.last_hash == last_block.hash and self.hash.startswith(''.zfill(difficulty))
         # TODO: change the difficulty variable so that is matches the mining process
 
 
+@dataclass
 class Transaction:
+    """[summary]
+    
+    Args:
+        sender (str): The sender's public key
+        receiver (str): The receiver's address
+        amount (int): The amount of coins
+        signature (str): The signature of the transaction
+        utxo (tuple): Unspent transaction outputs. Correct format for each output is ([block_id],[transaction_id])
     """
-    The Transaction class. an object that holds important details on each transaction
-    """
-    def __init__(self, sender, receiver, amount, utxo, signature):
-        """
-        The constructor.
-        :param sender: (string) The sender's public key
-        :param receiver: (string) The reciever's public key
-        :param amount: (float) The amount to send
-        :param utxo: (list(tuple(block, i))) A list of trasaction IDs with unspent transaction outputs of the sender
-        :param signature:
-        :return:
-        """
-        self.sender = sender
-        self.receiver = receiver
-        self.amount = amount
-        self.utxo = utxo
-        self.signature = signature
 
-    def to_list(self):
-        return [self.sender, self.receiver, self.amount, self.utxo, self.signature]
+    sender: str
+    receiver: str
+    amount: int
+    signature: str
+    utxo: tuple = field(default_factory=tuple)
+
+    def calc(self):
+        print('calc')
+
+
+class Wallet:
+
+    def __init__(self, mnemonic_words=None):
+        """[summary]
+        
+        Class for handling the hd wallet. Currently uses bip39 standard with only 1 account and no categories.
+        generates an hd wallet with on the coin's network
+
+        Args:
+            mnemonic_words (str): mnomic words to make the keys from
+        """
+        
+        mnemo = mnemonic.Mnemonic("english")
+
+        if mnemonic_words is None:
+            mnemonic_words = mnemo.generate(strength=256)
+
+        
+        seed = mnemo.to_seed(mnemonic_words)
+
+        master_key = bip32utils.BIP32Key.fromEntropy(seed) # DO NOT share this key
+        master_coin_key = master_key.ChildKey(
+            44 + bip32utils.BIP32_HARDEN
+        ).ChildKey(
+            69420 + bip32utils.BIP32_HARDEN
+        ).ChildKey(
+            0 + bip32utils.BIP32_HARDEN
+        ).ChildKey(0).ChildKey(0)
+   
+        self.words = mnemonic_words
+        self.addr = master_coin_key.Address(),  
+        self.pub_k = binascii.hexlify(master_coin_key.PublicKey()).decode()
+        self.priv_k = master_coin_key.WalletImportFormat() # Private key is in wif
+        
+        
+    def __repr__(self):
+        return f'Wallet({self.words}, {self.addr}, {self.pub_k}, {self.priv_k})'
+    
+    def __str__(self):
+        return json.dumps(self, ensure_ascii=False, indent=4, cls=ClassJSONEncoder)
+    
 
 
 # A Class inheriting from JSONEcoder to encode the Block class to json dict
-class BlockJSONEncoder(JSONEncoder):
+class ClassJSONEncoder(JSONEncoder):
     def default(self, o):
         return o.__dict__
 
