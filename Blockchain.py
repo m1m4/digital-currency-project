@@ -11,12 +11,11 @@ class Blockchain:
     """
 
     def __init__(self, chain=None, dir=None):
-        """
-        The __init__ method of the blockchain. Creates a new blockchain with the first block as GENESIS,
-        unless given another chain.
+        """[summary]
 
-        :param chain: (dictionary) The blockchain in a dictionary. Default is the first GENESIS block.
-        :param dir: (str) the directory of the blockchain. Default is the directory of this file
+        Args:
+            chain (dict, optional): The blockchain. Defaults to Only genesis block.
+            dir (str, optional): the file directory. Defaults to this file path.
         """
         if chain is None:
             self.chain = {1: Constants.GENESIS}
