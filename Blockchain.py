@@ -6,15 +6,15 @@ from types import SimpleNamespace
 
 
 class Blockchain:
-    """
-    A class that represents the blockchain. It is responsible to manage the blockchain.
-    """
 
     def __init__(self, chain=None, dir=None):
-        """[summary]
-
+        """A class that represents the blockchain. It is responsible to manage
+        the blockchain.
+        
         Args:
-            chain (dict, optional): The blockchain. Defaults to Only genesis block.
+            chain (dict, optional): The blockchain. Defaults to Only genesis
+            block.
+            
             dir (str, optional): the file directory. Defaults to this file path.
         """
         if chain is None:
@@ -28,14 +28,16 @@ class Blockchain:
         else:
             self.dir = dir
 
-    def add_block(self, data, pow):
-        """
-        Adds a new Block to the blockchain
+    def add_block(self, txns, pow):
+        """Adds a new Block to the blockchain
 
-        :param data: (list) The trasactions data to add to the blockchain
-        :param pow: (str) The proof of work
+        Args:
+            txns (tuple): a tuple of all the transaction in the block
+            
+            pow (str): the proof of work of the block
 
-        :return: The newly added block
+        Returns:
+            Block: the newly created block that was added to the blockchain
         """
         last_block = list(self.chain.values())[-1]
 
@@ -45,12 +47,13 @@ class Blockchain:
         return new_block
 
     def print_blocks(self, start=1, end=None):
-        """
-        Prints the blockchain to console
+        """Prints the blockchain to console. Use only when blockchain is very
+        small
 
-        :param start: The starting index of the blocks to print. Default is set to 1
-        :param end: The ending index of the blocks to print (including itself).
-         Default is set to the end of the blockchain
+        Args:
+            start (int, optional): start block index. Defaults to 1.
+            
+            end ([type], optional): end block index. Defaults to the last block.
         """
         if end is None:
             end = len(self.chain)
@@ -60,16 +63,14 @@ class Blockchain:
                 print(f'Block #{id}:\n' + str(self.chain.get(id)))
 
     def save(self):
-        """
-        Saves the blockchain to a json file
+        """Saves the blockchain to a json file
         """
 
         with open(self.dir + r'\blockchain.json', 'w', encoding='utf-8') as file:
             json.dump(self.chain, file, ensure_ascii=False, indent=4, cls=Block.BlockJSONEncoder)
 
     def update(self, *blocks):
-        """
-        Updates the blockchain file. if the chain in memory is .
+        """Updates the blockchain file.
         """
 
         with open(self.dir + r'\blockchain.json', mode="r+") as file:
