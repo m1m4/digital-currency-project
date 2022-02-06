@@ -47,11 +47,6 @@ class Block:
         return json.dumps(self, ensure_ascii=False, indent=4,
                           cls=ClsEncoder)
 
-    def verify(self, last_block, difficulty):
-        return self.last_hash == last_block.hash \
-            and self.hash.startswith(''.zfill(difficulty))
-        # TODO: change the difficulty variable so that is matches the mining process
-
 
 # A Class inheriting from JSONEcoder to encode the Block class to json dict
 class ClsEncoder(JSONEncoder):
