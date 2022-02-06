@@ -2,50 +2,98 @@ import Block
 from Block import Constants
 import os
 import json
-from types import SimpleNamespace
+import pandas as pd
+from TreeNode import TreeNode, strip_short
 
 
 class Blockchain:
 
-    def __init__(self, chain=None, dir=None):
+    def __init__(self, chain=None):
         """A class that represents the blockchain. It is responsible to manage
         the blockchain.
         
         Args:
             chain (dict, optional): The blockchain. Defaults to Only genesis
             block.
+        
+        Attributes:
+            chain (list): The blocks with height >= 3 and most likely of the
+            main chain
             
-            dir (str, optional): the file directory. Defaults to this file path.
+            unconfirmed (TreeNode): blocks with height < 3. May include temporary
+            forks in the form of list inside lists
+            
+            
+            orphan_blocks: Block that were added to the blockchain but currently
+            not related to any block in the blockchain
         """
         if chain is None:
-            self.chain = {1: Constants.GENESIS}
+            self.chain = [Constants.GENESIS]
         else:
             self.chain = chain
+            
+        self.unconfirmed = None
+        self.orphaned_blocks = list()
 
-        # Optional custom directory
-        if dir is None:
-            self.dir = os.path.dirname(os.path.realpath(__file__))
-        else:
-            self.dir = dir
-
-    def add_block(self, txns, pow):
-        """Adds a new Block to the blockchain
+    def add_block(self, block):
+        """Adds the given block to the blockchain. If not related to any block
+        in the blockchain, it is added to the orphaned blocks list
 
         Args:
-            txns (tuple): a tuple of all the transaction in the block
-            
-            pow (str): the proof of work of the block
-
-        Returns:
-            Block: the newly created block that was added to the blockchain
+            block (Block): the block to add to the blockchain
         """
-        last_block = list(self.chain.values())[-1]
+        
+        def insert(block, root, i=0):
+            """Inserts a block to the unconfirmed blockchain. returns false if
+            not found a previous block
 
-        new_block = Block.Block(last_block.hash, data, pow)
-        self.chain.update({len(self.chain) + 1: new_block})
+            Args:
+                block (Block): The block to insert
+                root (TreeNode): The blockchain to insert to
+                i (int, optional): Used for recursion purposes
 
-        return new_block
-
+            Returns:
+                bool: return true if found previous block
+            """
+            # Return false if there's no children
+            if root == None:
+                return False
+            
+                # Return True if found
+            elif block.last_hash == root.value.hash:
+                root.add_child(TreeNode(block))
+                return True
+            
+            else:
+                return insert(block, root.children[i], i) or \
+                    insert(block, root.children[i + 1], i + 1)
+            
+        # Check if unconfirmed block is empty and check if last block is on
+        # confirmed chain
+        if not self.unconfirmed:
+            if block.last_hash == self.chain[-1].hash:
+                self.unconfirmed.append(block)
+            else:
+                self.orphaned_blocks.append(block)
+        
+       
+        if not insert(block, self.unconfirmed):
+            self.orphaned_blocks.append(block)
+         
+         # Remove all short forks   
+        strip_short(self.unconfirmed, 2)
+        
+        # If the block height is more than 3 and there no forks, add to the main
+        # chain
+        if self.unconfirmed.max_level() >= 3 and \
+            len(self.unconfirmed.children) == 1:
+            
+            self.chain.append(self.unconfirmed.data)
+            self.unconfirmed = self.children[0]
+            self.unconfirmed.remove_parent()
+            
+            
+        
     def print_blocks(self, start=1, end=None):
         """Prints the blockchain to console. Use only when blockchain is very
         small
@@ -62,12 +110,39 @@ class Blockchain:
             if start <= id <= end:
                 print(f'Block #{id}:\n' + str(self.chain.get(id)))
 
-    def save(self):
-        """Saves the blockchain to a json file
-        """
+    def save(self, func=None):
+        """Save the blockchain in memory to the disk using the default method or
+        a custom one
 
-        with open(self.dir + r'\blockchain.json', 'w', encoding='utf-8') as file:
-            json.dump(self.chain, file, ensure_ascii=False, indent=4, cls=Block.BlockJSONEncoder)
+        Args:
+            func (function, optional): The custom function. function needs to
+            have 1 parameter for the chain in memory. Defaults to None.
+        """
+        
+        if func is None:
+            
+            metadata_list = list()
+            txns_list = list()
+            for block in self.chain:
+                metadata_list.append([block.timestamp, block.last_hash, 
+                                      block.pow, block.hash, txns_list[-1] + 1],
+                                      len(block.txns))
+                
+                txns_list += block.txns
+                
+            metadata_df = pd.DataFrame(metadata_list,
+                                       columns=['Timestamp', 'Last hash', 'POW',
+                                                'Hash', 'Txn index',
+                                                'Txn length'])
+            
+            txns_df = pd.DataFrame(txns_list)
+            
+            metadata_df.to_csv()
+            txns_df.to_csv()
+        
+        else:
+            func(self.chain)
+
 
     def update(self, *blocks):
         """Updates the blockchain file.
@@ -77,14 +152,12 @@ class Blockchain:
             file.seek(0, 2)
             position = file.tell() - 3
             file.seek(position)
-            file.write(
-                f",\n{json.dumps(dict(enumerate(blocks)), ensure_ascii=False, indent=4, cls=Block.BlockJSONEncoder)[2:-1]}")
+            file.write(f",\n{json.dumps(dict(enumerate(blocks)), ensure_ascii=False, indent=4, cls=Block.ClsEncoder)[2:-1]}")
             file.write('}')
 
     # IMPORTANT: load overwrites the blockchain.
     def load(self):
-        """
-        Loads the blockchain from a json file
+        """Loads the blockchain from a json file
         """
 
         with open(self.dir + r'\blockchain.json', 'r', encoding='utf-8') as file:
