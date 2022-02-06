@@ -3,6 +3,7 @@ from Block import Constants
 import os
 import json
 import pandas as pd
+import pathlib
 from TreeNode import TreeNode, strip_short
 
 
@@ -60,19 +61,22 @@ class Blockchain:
                 return False
             
                 # Return True if found
-            elif block.last_hash == root.value.hash:
+            elif block.last_hash == root.data.hash:
                 root.add_child(TreeNode(block))
                 return True
             
+            elif i == len(root.children):
+                return False
+            
             else:
-                return insert(block, root.children[i], i) or \
-                    insert(block, root.children[i + 1], i + 1)
+                return insert(block, root.children[i], 0) or \
+                    insert(block, root, i + 1)
             
         # Check if unconfirmed block is empty and check if last block is on
         # confirmed chain
-        if not self.unconfirmed:
+        if self.unconfirmed is None:
             if block.last_hash == self.chain[-1].hash:
-                self.unconfirmed.append(block)
+                self.unconfirmed = TreeNode(block)
             else:
                 self.orphaned_blocks.append(block)
         
@@ -89,11 +93,10 @@ class Blockchain:
             len(self.unconfirmed.children) == 1:
             
             self.chain.append(self.unconfirmed.data)
-            self.unconfirmed = self.children[0]
+            self.unconfirmed = self.unconfirmed.children[0]
             self.unconfirmed.remove_parent()
             
             
-        
     def print_blocks(self, start=1, end=None):
         """Prints the blockchain to console. Use only when blockchain is very
         small
@@ -125,35 +128,23 @@ class Blockchain:
             txns_list = list()
             for block in self.chain:
                 metadata_list.append([block.timestamp, block.last_hash, 
-                                      block.pow, block.hash, txns_list[-1] + 1],
-                                      len(block.txns))
+                                      block.pow, block.hash, len(txns_list) + 1,
+                                      len(block.txns)])
                 
                 txns_list += block.txns
                 
             metadata_df = pd.DataFrame(metadata_list,
                                        columns=['Timestamp', 'Last hash', 'POW',
-                                                'Hash', 'Txn index',
-                                                'Txn length'])
+                                                'Hash', 'Line in txns',
+                                                'Amount of txns'])
             
             txns_df = pd.DataFrame(txns_list)
             
-            metadata_df.to_csv()
-            txns_df.to_csv()
+            metadata_df.to_csv(r'metadata.csv')
+            txns_df.to_csv(r'txns.csv')
         
         else:
             func(self.chain)
-
-
-    def update(self, *blocks):
-        """Updates the blockchain file.
-        """
-
-        with open(self.dir + r'\blockchain.json', mode="r+") as file:
-            file.seek(0, 2)
-            position = file.tell() - 3
-            file.seek(position)
-            file.write(f",\n{json.dumps(dict(enumerate(blocks)), ensure_ascii=False, indent=4, cls=Block.ClsEncoder)[2:-1]}")
-            file.write('}')
 
     # IMPORTANT: load overwrites the blockchain.
     def load(self):
@@ -166,3 +157,10 @@ class Blockchain:
             self.chain = dict()
             for id, value in temp_chain.items():
                 self.chain.update({int(id): Block.decode_JSON(value)})
+                
+    def get_last_block(self, confirmed=True):
+        
+        if confirmed:
+            return self.chain[-1]
+                
+                

@@ -30,33 +30,36 @@ class Block:
         else:
             self.timestamp = timestamp
         self.last_hash = last_hash
-        self.transactions = txns
+        self.txns = txns
         self.pow = pow
 
         if hash is None:
             self.hash = sha256(f'{self.timestamp}{self.last_hash} \
-                        {self.transactions}{self.pow}'.encode()).hexdigest()
+                        {self.txns}{self.pow}'.encode()).hexdigest()
         else:
             self.hash = hash
 
     def __repr__(self):
         return f'Block({self.timestamp}, {self.hash}, {self.last_hash}, \
-                {self.data}, {self.pow})'
+{self.pow})'
 
     def __str__(self):
-        return json.dumps(self, ensure_ascii=False, indent=4,
-                          cls=ClsEncoder)
+        return f'Block({self.timestamp}, {self.hash}, {self.last_hash}, \
+{self.pow})'
 
+
+def generate_block(block, txns, pow):
+    return Block(block.hash, txns, pow)
+
+def decode_JSON(dict_):
+    return Block(dict_["last_hash"], dict_["data"], dict_["pow"],
+                 timestamp=dict_["timestamp"], hash=dict_["hash"])
+    
 
 # A Class inheriting from JSONEcoder to encode the Block class to json dict
 class ClsEncoder(JSONEncoder):
     def default(self, o):
         return o.__dict__
-
-
-def decode_JSON(dict_):
-    return Block(dict_["last_hash"], dict_["data"], dict_["pow"],
-                 timestamp=dict_["timestamp"], hash=dict_["hash"])
 
 
 # Premade object of the block class
