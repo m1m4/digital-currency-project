@@ -1,16 +1,55 @@
 import time
-import json
 from hashlib import *
 from json import JSONEncoder
-from dataclasses import dataclass, field
+from collections import namedtuple
+import functools
+
+
+Transaction = namedtuple('Transaction', ['ver', 'sender', 'receivers',
+                                         'outputs', 'proof'])
+"""Transaction namedtuple. It's a namedtuple named to store all the information
+related to the trasaction
+Args:
+    ver (str): The transaction version. Used to add support to the variety of 
+    versions that might come later without making older version invalid.
+
+    sender (str): The sender's address
+    
+    receivers (tuple): The receivers addresses. correct format for each address
+    ([addr],[amount in string]). to add fees change addr to 'FEES'
+    
+    outputs (tuple): Unspent transaction outputs. Correct format for each output
+    is ([block_id], [transaction_id], [output_id]) all in type string
+
+    proof (tuple): A proof that ensures the sender is the owner of this address 
+    and its outputs. It consists of a tuple with the public key of the sender
+    and the signature of the transaction. 
+    
+"""
+
+BlockMetadata = namedtuple('BlockMetadata', ['timestamp', 'last_hash',
+                                             'proof_of_work', 'block_hash'])
+""" Block metadata namedtuple. same as Block but without the Transactions
+
+    Args:
+    last_hash (str): the hash of the last block
+    
+    proof_of_work (str): the proof of work of the block
+    
+    timestamp (float, optional): the time in unix time the block was 
+    created. Defaults to None.
+    
+    block_hash (str, optional): The hash of this block. Defaults to None.
+"""
 
 
 #TODO: convert to dataclass
 # The main block class
 class Block:
 
-    def __init__(self, last_hash, txns, pow, timestamp=None, hash=None):
-        """[summary]
+    def __init__(self, last_hash, txns, proof, timestamp=None,
+                 hash_=None):
+        """The block class. represents a block in the blockchain
 
         Args:
             last_hash (str): the hash of the last block
@@ -29,32 +68,40 @@ class Block:
             self.timestamp = time.time()
         else:
             self.timestamp = timestamp
+            
         self.last_hash = last_hash
+        self.proof = proof
         self.txns = txns
-        self.pow = pow
-
-        if hash is None:
-            self.hash = sha256(f'{self.timestamp}{self.last_hash} \
-                        {self.txns}{self.pow}'.encode()).hexdigest()
-        else:
-            self.hash = hash
+        
+        if hash_ is None:
+            self.hash_ = sha256(f'{self.timestamp}{self.last_hash} \
+                        {self.txns}{self.proof}'.encode()).hexdigest()
+            
+        self.txns = txns
+        
 
     def __repr__(self):
-        return f'Block({self.timestamp}, {self.hash}, {self.last_hash}, \
-{self.pow})'
+        return f'Block({self.timestamp}, {self.hash_}, {self.last_hash}, \
+{self.proof})'
 
     def __str__(self):
-        return f'Block({self.timestamp}, {self.hash}, {self.last_hash}, \
-{self.pow})'
+        return f'Block({self.timestamp}, {self.hash_}, {self.last_hash}, \
+{self.proof})'
 
+    @functools.cached_property
+    def metadata(self):
+        return BlockMetadata(self.timestamp, self.last_hash, self.proof,
+                             self.hash_)
 
-def generate_block(block, txns, pow):
-    return Block(block.hash, txns, pow)
+def generate_block(block, txns, pow_):
+    return Block(block.hash_, txns, pow_)
 
 def decode_JSON(dict_):
     return Block(dict_["last_hash"], dict_["data"], dict_["pow"],
                  timestamp=dict_["timestamp"], hash=dict_["hash"])
     
+
+
 
 # A Class inheriting from JSONEcoder to encode the Block class to json dict
 class ClsEncoder(JSONEncoder):
@@ -64,5 +111,6 @@ class ClsEncoder(JSONEncoder):
 
 # Premade object of the block class
 class Constants:
-    GENESIS = Block('void', [], '0')
+    GENESIS = Block('void', [Transaction('0.1', 'void',
+                                         ('mima', 10), None, None)], '0')
 
