@@ -35,7 +35,7 @@ class TreeNode:
         """
         spaces = ' ' * self.get_level() * 3
         prefix = spaces + "|__" if self.parent else ""
-        print(prefix + self.data)
+        print(prefix + str(self.data))
         if self.children:
             for child in self.children:
                 child.print_tree()
@@ -126,34 +126,65 @@ def strip_short(root, diff):
     return root
             
             
-def find(value, root, i=0):
+def find(data, root, i=0):
     
     # Return false if there's no children
-    if root == None:
+    if root is None:
         return False
     
         # Return True if found
-    elif value == root.value:
+    elif data == root.data:
         return True, root
     
+    elif i == len(root.children):
+        return False
+
     else:
-        return find(value, root.children[i], i) or \
-            find(value, root.children[i + 1], i + 1)
+        return find(data, root.children[i], 0) or \
+            find(data, root, i + 1)
             
-def insert(value, root, node=TreeNode(None), i=0):
-    
+def insert(data, root, new_data=None, i=0):
+    """If the data is matched, insert node as a child
+
+    Args:
+        data (any): The data
+        root (TreeNode): The tree's root
+        new_data (any, optional): The new data to insert. Defaults to None.
+        i (int, optional): used for recursion. Dot not use. Defaults to 0.
+
+    Returns:
+        bool: return True if found, else false
+    """
     # Return false if there's no children
     if root == None:
         return False
     
         # Return True if found
-    elif value == root.value:
-        root.add_child(node)
+    elif data == root.data:
+        root.add_child(TreeNode(new_data))
         return True
     
+    elif i == len(root.children):
+        return False
+    
     else:
-        return find(value, root.children[i], i) or \
-            find(value, root.children[i + 1], i + 1)
+        return insert(data, root.children[i], new_data, 0) or \
+            insert(data, root, new_data, i + 1)
+            
+            
+def get_end_children(node, i=0):
+    if not node.children:
+        return [node]
+    
+    elif len(node.children) == 1:
+        return get_end_children(node.children[0])
+    
+    elif i == len(root.children):
+        return []
+    
+    else:
+        return get_end_children(node.children[i], 0) + \
+        get_end_children(node, i + 1)
     
            
 if __name__ == '__main__':
@@ -174,8 +205,4 @@ if __name__ == '__main__':
     n21.add_child(n211)
     n211.add_child(n2111)
     
-    root.print_tree()
-    strip_short(root, 2).print_tree()
-    
-    print(root)
         
