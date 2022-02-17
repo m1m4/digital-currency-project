@@ -1,10 +1,10 @@
-import Block
-from Block import Constants
+from importlib.metadata import metadata
+from Block import Constants, Transaction, Block
 import os
 import json
 import pandas as pd
 import pathlib
-from TreeNode import TreeNode, strip_short
+from TreeNode import TreeNode, strip_short, get_end_children
 
 
 class Blockchain:
@@ -36,7 +36,7 @@ class Blockchain:
         self.unconfirmed = None
         self.orphaned_blocks = list()
 
-    def add_block(self, block):
+    def add_block(self, block, is_confirmed=False, update_file=True):
         """Adds the given block to the blockchain. If not related to any block
         in the blockchain, it is added to the orphaned blocks list
 
@@ -44,59 +44,73 @@ class Blockchain:
             block (Block): the block to add to the blockchain
         """
         
-        def insert(block, root, i=0):
-            """Inserts a block to the unconfirmed blockchain. returns false if
-            not found a previous block
+        # If it's already was checked
+        if is_confirmed:
+            self.chain.append(block)
+            
+            if update_file:
+                self.__update_file(self.last_block())
+            
+        else:
+            def insert(block, root, i=0):
+                """Inserts a block to the unconfirmed blockchain. returns false
+                if not found a previous block
 
-            Args:
-                block (Block): The block to insert
-                root (TreeNode): The blockchain to insert to
-                i (int, optional): Used for recursion purposes
+                Args:
+                    block (Block): The block to insert
+                    root (TreeNode): The blockchain to insert to
+                    i (int, optional): Used for recursion purposes
 
-            Returns:
-                bool: return true if found previous block
-            """
-            # Return false if there's no children
-            if root == None:
-                return False
+                Returns:
+                    bool: return true if found previous block
+                """
+                # Return false if there's no children
+                if root == None:
+                    return False
+                
+                    # Return True if found
+                elif block.last_hash == root.data.hash_:
+                    root.add_child(TreeNode(block))
+                    return True
+                
+                elif i == len(root.children):
+                    return False
+                
+                else:
+                    return insert(block, root.children[i], 0) or \
+                        insert(block, root, i + 1)
+                
+            # Check if unconfirmed block is empty and check if last block is on
+            # confirmed chain
+            if self.unconfirmed is None:
+                if block.last_hash == self.chain[-1].hash_:
+                    self.unconfirmed = TreeNode(block)
+                else:
+                    self.orphaned_blocks.append(block)
             
-                # Return True if found
-            elif block.last_hash == root.data.hash:
-                root.add_child(TreeNode(block))
-                return True
-            
-            elif i == len(root.children):
-                return False
-            
-            else:
-                return insert(block, root.children[i], 0) or \
-                    insert(block, root, i + 1)
-            
-        # Check if unconfirmed block is empty and check if last block is on
-        # confirmed chain
-        if self.unconfirmed is None:
-            if block.last_hash == self.chain[-1].hash:
-                self.unconfirmed = TreeNode(block)
-            else:
+        
+            if not insert(block, self.unconfirmed):
                 self.orphaned_blocks.append(block)
-        
-       
-        if not insert(block, self.unconfirmed):
-            self.orphaned_blocks.append(block)
-         
-         # Remove all short forks   
-        strip_short(self.unconfirmed, 2)
-        
-        # If the block height is more than 3 and there no forks, add to the main
-        # chain
-        if self.unconfirmed.max_level() >= 3 and \
-            len(self.unconfirmed.children) == 1:
             
-            self.chain.append(self.unconfirmed.data)
-            self.unconfirmed = self.unconfirmed.children[0]
-            self.unconfirmed.remove_parent()
+            # Remove all short forks   
+            strip_short(self.unconfirmed, 2)
             
+            # If the block height is more than 3 and there no forks, add to the 
+            # main chain
+            if self.unconfirmed.max_level() >= 3 and \
+                len(self.unconfirmed.children) == 1:
+                
+                self.chain.append(self.unconfirmed.data)
+                self.unconfirmed = self.unconfirmed.children[0]
+                self.unconfirmed.remove_parent()
+                
+                if update_file:
+                    self.__update_file(self.last_block())
+                
             
+
+
+    
     def print_blocks(self, start=1, end=None):
         """Prints the blockchain to console. Use only when blockchain is very
         small
@@ -119,7 +133,7 @@ class Blockchain:
 
         Args:
             func (function, optional): The custom function. function needs to
-            have 1 parameter for the chain in memory. Defaults to None.
+            have 1 parameter for this blockchain instance. Defaults to None.
         """
         
         if func is None:
@@ -127,16 +141,17 @@ class Blockchain:
             metadata_list = list()
             txns_list = list()
             for block in self.chain:
-                metadata_list.append([block.timestamp, block.last_hash, 
-                                      block.pow, block.hash, len(txns_list) + 1,
+                metadata_list.append([block.timestamp,
+                                      block.last_hash, 
+                                      block.proof, block.hash_,
+                                      len(txns_list),
                                       len(block.txns)])
                 
                 txns_list += block.txns
                 
             metadata_df = pd.DataFrame(metadata_list,
                                        columns=['Timestamp', 'Last hash', 'POW',
-                                                'Hash', 'Line in txns',
-                                                'Amount of txns'])
+                                                'Hash', 'Line', 'Length'])
             
             txns_df = pd.DataFrame(txns_list)
             
@@ -144,23 +159,74 @@ class Blockchain:
             txns_df.to_csv(r'txns.csv')
         
         else:
-            func(self.chain)
-
+            func(self)
+   
     # IMPORTANT: load overwrites the blockchain.
-    def load(self):
-        """Loads the blockchain from a json file
+    def load(self, func=None):
+        """Loads the blockchain from metadata and txns. WARNING: overwrites the
+        current
+        
+        Args:
+            func (function, optional): The custom function. function needs to
+            have 1 parameter for this blockchain instance. Defaults to None.
         """
-
-        with open(self.dir + r'\blockchain.json', 'r', encoding='utf-8') as file:
-            temp_chain = json.load(file)
-
-            self.chain = dict()
-            for id, value in temp_chain.items():
-                self.chain.update({int(id): Block.decode_JSON(value)})
+        
+        if func is None:
+            metadata_df = pd.read_csv('metadata.csv')
+            total_txns_df = pd.read_csv('txns.csv')
+            
+            self.chain = []
+            
+            for i, row in metadata_df.iterrows():
+            
+                timestamp = row['Timestamp'] 
+                last_hash = row['Last hash']
+                pow_ = row['POW'] 
+                hash_ = row['Hash']
                 
-    def get_last_block(self, confirmed=True):
+                line = row['Line']
+                length = row['Length']
+                txns_df = total_txns_df.iloc[line:line + length + 1]
+                
+                txns = []
+                for g, txn_row in txns_df.iterrows():
+                    txns.append(Transaction(txn_row['ver'], txn_row['sender'],
+                                            txn_row['receivers'],
+                                            txn_row['outputs'], 
+                                            txn_row['proof']))
+                
+                block = Block(last_hash, txns, pow_, timestamp, hash_)
+                self.add_block(block, is_confirmed=True)
+            
+            if not self.unconfirmed is None and \
+            self.last_block(confirmed=True).hash == self.unconfirmed.data.last_hash:
+                self.unconfirmed = None
+                
+        else:
+            func(self)
+        
+    def __update_file(self, block):
+        
+        block_metadata_df = pd.DataFrame([block.metadata])
+        block_txns_df = pd.DataFrame(block.txns)
+        
+        block_metadata_df.to_csv('metadata.csv', mode='a',
+                                    header=not os.path.exists('metadata.csv'))
+        block_txns_df.to_csv('txns.csv',  mode='a',
+                                    header=not os.path.exists('txns.csv'))
+        
+       
+    def last_block(self, confirmed=True):
         
         if confirmed:
             return self.chain[-1]
+        elif self.unconfirmed is None:
+            return None
+        else:
+            return [block.data for block in get_end_children(self.unconfirmed)]
+                
+            
+        
+
                 
                 
