@@ -1,37 +1,13 @@
+from email.headerregistry import Address
 import hashlib
 import json
-from collections import namedtuple
-from Block import ClsEncoder
+from Block import ClsEncoder, Transaction
 import random
 
 import binascii
 import mnemonic
 import bip32utils
 import hmac
-
-
-Transaction = namedtuple('Transaction', ['ver', 'sender', 'receivers',
-                                         'outputs', 'proof'])
-"""Transaction namedtuple. It's a namedtuple named to store all the information
-related to the trasaction
-Args:
-    ver (str): The transaction version. Used to add support to the variety of 
-    versions that might come later without making older version invalid.
-
-    sender (str): The sender's address
-    
-    receivers (tuple): The receivers addresses. correct format for each address
-    ([addr],[amount in string]). to add fees change addr to 'FEES'
-    
-    outputs (tuple): Unspent transaction outputs. Correct format for each output
-    is ([block_id], [transaction_id], [output_id]) all in type string
-
-    proof (tuple): A proof that ensures the sender is the owner of this address 
-    and its outputs. It consists of a tuple with the public key of the sender
-    and the signature of the transaction. 
-    
-"""
-    
 
 
 class Wallet:
@@ -125,6 +101,9 @@ class Wallet:
             namedtuple(Transaction): The newly created transaction
         """
         
+        if isinstance(recv_addrs[0], list):
+            recv_addrs = tuple(recv_addrs[0])
+        
         # Check if user has enough balance
         total = 0
         for addr in recv_addrs:
@@ -137,33 +116,34 @@ class Wallet:
         
         #TODO: Create better algorithm for choosing the right utxos
         outputs = []
-        utxo_val = 0
+        output_val = 0
         
         
         utxos_temp = self.utxos.copy()
-        for i, utxo in enumerate(utxos_temp):
+        for utxo in utxos_temp:
              
-            utxo_val += utxo[3]
+            output_val += utxo[-1]
             # Create a list of outputs that will be used
             outputs.append((utxo[:-1]))
             self.utxos.pop(0)
-            i -= 1
             
-            if utxo_val > total + fee:
+            if output_val > total + fee:
                 # Add the remainder as a new output
-                recv_addrs += ((self.addr, utxo_val - total - fee), )
+                recv_addrs += ((self.addr, output_val - total - fee), )
                 break
-            elif utxo_val == total + fee: 
+            elif output_val == total + fee: 
                 break
-            
-        # To keep transaction signature consistent, we add fees even if its 0
-        signature = self.sign(f"{ver}{self.addr}{recv_addrs}{('FEES', fee)}")
-        proof = (self.pub_k, signature)
         
         if fee > 0:
-                recv_addrs += recv_addrs + (('FEES', fee), )
+            recv_addrs += (('FEES', fee), )
+        
+        # To keep transaction signature consistent, we add fees even if its 0
+        signature = self.sign(f"{ver}{self.addr}{recv_addrs}{outputs}")
+        proof = (self.pub_k, signature)
+        
+
                 
-        txn = Transaction(ver, self.addr, str(recv_addrs), str(outputs), proof)
+        txn = Transaction(ver, self.addr, recv_addrs, outputs, proof)
         
         return txn
     
@@ -181,6 +161,9 @@ class Wallet:
         Returns:
             namedtuple(Transaction): The newly created transaction
         """
+        
+        if isinstance(recv_addrs[0], list):
+            recv_addrs = recv_addrs[0]
         
         ver = '0.1'
         
@@ -218,6 +201,7 @@ class Wallet:
             txn_id = random.randint(0, 100)
             output_id = random.randint(0, 100)
             self.utxos.append((block, txn_id, output_id, int(amount / outputs)))
+            
         
 
         
@@ -240,5 +224,13 @@ class NotEnoughFundsError(Exception):
     
     def __init__(self, message="Target wallet doesnt have enough funds"):
         super().__init__(message)
+        
+        
+def generate_invalid_address():
+    
+    phrase = str(random.random() + random.randint(-10, 10)) * 128
+    key = bip32utils.BIP32Key.fromEntropy(phrase.encode())
+    return key.Address()
+    
         
     
