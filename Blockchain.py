@@ -155,8 +155,8 @@ class Blockchain:
             
             txns_df = pd.DataFrame(txns_list)
             
-            metadata_df.to_csv(r'metadata.csv')
-            txns_df.to_csv(r'txns.csv')
+            metadata_df.to_csv(r'Blockchain\metadata.csv')
+            txns_df.to_csv(r'Blockchain\txns.csv')
         
         else:
             func(self)
@@ -172,8 +172,8 @@ class Blockchain:
         """
         
         if func is None:
-            metadata_df = pd.read_csv('metadata.csv')
-            total_txns_df = pd.read_csv('txns.csv')
+            metadata_df = pd.read_csv(r'Blockchain\metadata.csv')
+            total_txns_df = pd.read_csv(r'Blockchain\txns.csv')
             
             self.chain = []
             
@@ -210,10 +210,10 @@ class Blockchain:
         block_metadata_df = pd.DataFrame([block.metadata])
         block_txns_df = pd.DataFrame(block.txns)
         
-        block_metadata_df.to_csv('metadata.csv', mode='a',
-                                    header=not os.path.exists('metadata.csv'))
-        block_txns_df.to_csv('txns.csv',  mode='a',
-                                    header=not os.path.exists('txns.csv'))
+        block_metadata_df.to_csv(r'Blockchain\metadata.csv', mode='a',
+                                    header=not os.path.exists(r'Blockchain\metadata.csv'))
+        block_txns_df.to_csv(r'Blockchain\txns.csv',  mode='a',
+                                    header=not os.path.exists(r'Blockchain\txns.csv'))
         
        
     def last_block(self, confirmed=True):
