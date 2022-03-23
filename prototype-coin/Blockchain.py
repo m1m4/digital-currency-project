@@ -1,9 +1,6 @@
-from importlib.metadata import metadata
 from Block import Constants, Transaction, Block
 import os
-import json
 import pandas as pd
-import pathlib
 from TreeNode import TreeNode, strip_short, get_end_children
 
 

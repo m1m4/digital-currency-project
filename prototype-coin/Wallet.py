@@ -1,11 +1,10 @@
-from email.headerregistry import Address
 import hashlib
 import json
 from Block import ClsEncoder, Transaction
 import random
 
-import binascii
-import mnemonic
+from binascii import hexlify
+from mnemonic import Mnemonic
 import bip32utils
 import hmac
 
@@ -21,7 +20,7 @@ class Wallet:
             mnemonic_words (str): mnomic words to make the keys from
         """
         
-        mnemo = mnemonic.Mnemonic("english")
+        mnemo = Mnemonic("english")
 
         if mnemonic_words is None:
             mnemonic_words = mnemo.generate(strength=256)
@@ -43,7 +42,7 @@ class Wallet:
    
         self.words = mnemonic_words
         self.addr = master_coin_key.Address()
-        self.pub_k = binascii.hexlify(master_coin_key.PublicKey()).decode()
+        self.pub_k = hexlify(master_coin_key.PublicKey()).decode()
         # Private key is in wif (Wallet import format)
         self.priv_k = master_coin_key.PrivateKey()
         self.wif = master_coin_key.WalletImportFormat()
