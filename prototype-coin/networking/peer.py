@@ -1,164 +1,217 @@
-from logging.config import listen
-from p2pnetwork.node import Node
-from fastapi import FastAPI
-from multiprocessing import Process
-import requests
-import api
-
-import uvicorn
+import re
+from xmlrpc.client import FastUnmarshaller
+import websockets
+import asyncio
+import websockets.exceptions
 
 
-app_ = FastAPI()
+PORT = 11111
+IP = 'localhost'
+URI = f'ws://{IP}:{PORT}'
 
-@app_.get('/')
-def home():
-    return {'banan': 'ok'}
+loop = asyncio.get_event_loop()
 
+class Peer:
+    
+    def __init__(self) -> None:
+        
+        # Peers that are connected to us
+        self.inbound = set()
+        # Peer that we are connected to
+        self.outbound = set() 
+        
+        self.last_conn = None
+        
+    async def handler(self, websocket):
+        """Initiated whenever a peer wants to connect to us.
+        Called by websockets.serve().
+        """
+    
+        print(f'Peer connected: {websocket.remote_address[0]}:{websocket.remote_address[1]}')
 
-class FullNode(Node):
+        conn = PeerConnection(websocket)
+        self.inbound.add(conn)
+        await conn.listener()
+        
+        
+        self.inbound.remove(conn)
+        
     
     
-    def __init__(self, host, port=None, id=None, callback=None,
-                 max_connections=0):
-        
-        if port is None:
-            port = 13579
-              
-        super().__init__(host, port, id, callback, max_connections)
-        
-        self.daemon = True
-        
-        
-    
-    def send(self, node, data):
-        """Send the data to the node if it exists.
-        Same as FullNode.send_to_node(node, data)
+    async def connect(self, addr):
+        """Connect to a peer
 
         Args:
-            node (FullNode): The node to send to
-            data (any): the data
+            addr (str/(str, int)): The address of the peer we want to connect
+            to. can be either a uri or a tuple containing the ip and the port
+
+        Returns:
+            _type_: _description_
         """
-        self.send_to_node(node, data) 
-    
-    def broadcast(self, data, exclude=[]):
-        """Send a message to all the nodes that are connected with this node.
-        data is a variable which is converted to JSON that is sent over to the
-        other node. Same as FullNode.send_to_nodes(data, exclude) 
+        
+        
+        if isinstance(addr, tuple):
+            uri = f'ws://{addr[0]}:{addr[1]}'
+        else:
+            uri = addr
+        client = await websockets.connect(uri)
+        conn = PeerConnection(client)
+        self.outbound.add(conn)
+        
+        print(f'Connected succesfully to peer at {uri}')
+        self.last_conn = conn
+        
+        loop.create_task(conn.listener())
+
+        
+    async def disconnect(self, peer_conn):
+        """Disconnect from a peer
 
         Args:
-            data (any): the data
-            exclude (list): gives all the nodes to which this data should
-                            not be sent.
+            peer_conn (PeerConnection/int): The peer's connection. enter one of the 
+            codes below to easily disonnect from peers:
             
+            0 - Disconnect from all peers
+            1 - Disconnect from all outbound peers
+            2 - Disconnect from all inbound peers
+            3 - Disconnect from last peer
         """
-        self.send_to_nodes(data, exclude) 
-        
-    
-    # Event functions do not call
-    def node_message(self, node, data):
         
         
-        data = self.split_data(data)
-        
-        print(data[0])
-        print(data[1])
-        
-    def split_data(self, data):
-        
-        decoder = {'t': True, 'f': False, '1': 'block', '2': 'node',
-                       '3': 'height', '4': 'hash', '5': 'hxn'}
-        
-        
-        params_decoded = (decoder.get(data[0]), decoder.get(data[1]),
-                          decoder.get(data[2]))
-        
-        
-        # return params_decoded, data[3:]
-        
-        response = requests.get(f'http://127.0.0.1:{10000}')
-        
-        final = response.content
-        print(final)
-        return final
-            
-        
-        
-    def outbound_node_connected(self, node):
-        print("outbound_node_connected: " + node.id)
-        
-    def inbound_node_connected(self, node):
-        print("inbound_node_connected: " + node.id)
-
-    def inbound_node_disconnected(self, node):
-        print("inbound_node_disconnected: " + node.id)
-
-    def outbound_node_disconnected(self, node):
-        print("outbound_node_disconnected: " + node.id)
-        
-    def node_disconnect_with_outbound_node(self, node):
-        print("node wants to disconnect with oher outbound node: (" + self.id + "): " + node.id)
-        
-    # def node_request_to_stop(self):
-    #     print("Node closing... ")
-
-
-
-def connect_to_node(node: FullNode):
-    host = input("host or ip of node? ")
-    port = int(input("port? "))
-    node.connect_with_node(host, port)
-
-if __name__ == "__main__":
-    
-    # ip = input('Enter ip... ')
-    # if not ip:
-    #     ip = '127.0.0.1'
-        
-    # port = int(input('Enter port... '))
-    
-    
-    # node = FullNode(ip, port, id=count)
-    # node.start()
-    
-    
-    
-    # Implement a console application
-    # command = input("? ")
-    # while command != "stop" :
-        
-    #     match command:
-    #         case 'connect':
-    #             connect_to_node(node)
-    #         case 'broadcast':
+        if isinstance(peer_conn, int):
+            match peer_conn:
+                case 0:
+                    for conn in self.inbound:
+                        await conn.close()
+                    
+                    self.inbound = set()
+                    
+                    for conn in self.outbound:
+                        await conn.close()
+                    
+                    self.outbound = set()
+                    
+                case 1:
+                    for conn in self.outbound:
+                        await conn.close()
+                    
+                    self.outbound = set()
+                    
+                case 2:
+                    for conn in self.inbound:
+                        await conn.close()
+                    
+                    self.inbound = set()
                 
-    #             msg = input('Enter message... ')
-            
-    #             node.broadcast('tf1' + msg)
+                case 3:
+                    return await self.disconnect(self.last_conn)
                 
-    #         case 'disconnect':
-    #             node.disconnect_with_node(node.nodes_outbound[0])
+                case _:
+                    return False
+        else:
+            if peer_conn in self.inbound:
+                self.inbound.remove(peer_conn)
+                await peer_conn.close()
+                
+            elif peer_conn in self.outbound:
+                self.outbound.remove(peer_conn)
+                await peer_conn.close()
+                
+            else:
+                return False
         
-    #     # try:
-    #     #     eval(command)
         
-    #     # except NameError:
-    #     #     print('Invalid code')
-                     
-    #     command = input("? ")
+        return True
     
     
-    
-    node1 = FullNode(host='localhost', port=1111, id=1)
-    node2 = FullNode(host='localhost', port=2222, id=2)
-            
-    node1.start()
-    node2.start()
-    
-    node1.connect_with_node('localhost', 2222)
-    node1.broadcast('tf1' + 'hello')
+    async def broadcast(self, data, raw=False):
+        """Broadcasts a message to all known peers
 
-    node1.stop()
-    node2.stop()
+        Args:
+            data (any): The data to broadcast
+            raw (bool, optional): Whether to keep the data raw or format it in
+            json. Defaults to False.
+        """
+        
+        for peer in self.inbound:
+            peer.send(data, raw)
+
+        for peer in self.outbound:
+            peer.send(data, raw)
+        
+
+
+
+class PeerConnection():
     
+    def __init__(self, websocket):
+        
+        self.websocket = websocket
+        self.remote_addr = websocket.remote_address
+        self.local_addr = websocket.local_address
+        
+    async def listener(self):
+        """A listener that listens to all incoming data from this connection
+        """
+        
+        async for message in self.websocket:
+            print(message)
+            
+        await self.close()
+        print(f'Disconnected from {self.remote_addr[0]}:{self.remote_addr[1]}')
+            
     
+    async def send(self, data, raw=False):
+        """Sends a message to the other end of this connection.
+
+        Args:
+            data (any): The data to send
+            raw (bool, optional): Whether to keep the data raw or format it in
+            json. Defaults to False.
+        """
+        
+        if raw: 
+            await self.websocket.send(data)
+        else:
+            pass
     
+    async def recv(self, raw=False):
+        """Recieves data from the other end of this connection.
+
+        Args:
+            raw (bool, optional): Whether to exepect the data as json.
+            Defaults to False.
+
+        Returns:
+            any: The data
+        """
+        if raw: 
+            return await self.websocket.recv()
+        else:
+            pass
+    
+    async def close(self):
+        """Closes this connection.
+        """
+        await self.websocket.close()
+        
+
+async def main():
+    
+    peer = Peer()
+    server = await websockets.serve(peer.handler, IP, PORT)
+    print(f'Server started. Running on {URI}')
+    
+    # client = await websockets.connect('ws://localhost:22222')
+    # await client.send('hello world')
+    # await client.recv() 
+    await server.wait_closed()
+        
+
+if __name__ == '__main__':
+    
+    asyncio.run(main())
+    
+# Lazy client: 
+# py -m websockets ws://localhost:1234
+
