@@ -1,9 +1,8 @@
-import time
-from hashlib import *
-from json import JSONEncoder
-from collections import namedtuple
 import functools
-
+import time
+from collections import namedtuple
+from hashlib import *
+import json
 
 Transaction = namedtuple('Transaction', ['ver', 'sender', 'receivers',
                                          'outputs', 'proof'])
@@ -48,7 +47,7 @@ BlockMetadata = namedtuple('BlockMetadata', ['timestamp', 'last_hash',
 class Block:
 
     def __init__(self, last_hash, txns, proof, timestamp=None,
-                 hash_=None):
+                 _hash=None):
         """The block class. represents a block in the blockchain
 
         Args:
@@ -73,28 +72,36 @@ class Block:
         self.proof = proof
         self.txns = txns
         
-        if hash_ is None:
-            self.hash_ = sha256(f'{self.timestamp}{self.last_hash} \
+        if _hash is None:
+            self._hash = sha256(f'{self.timestamp}{self.last_hash} \
                         {self.txns}{self.proof}'.encode()).hexdigest()
             
         self.txns = txns
         
 
     def __repr__(self):
-        return f'Block({self.timestamp}, {self.hash_}, {self.last_hash}, \
+        return f'Block({self.timestamp}, {self._hash}, {self.last_hash}, \
 {self.proof})'
 
     def __str__(self):
-        return f'Block({self.timestamp}, {self.hash_}, {self.last_hash}, \
+        return f'Block({self.timestamp}, {self._hash}, {self.last_hash}, \
 {self.proof})'
 
     @functools.cached_property
     def metadata(self):
         return BlockMetadata(self.timestamp, self.last_hash, self.proof,
-                             self.hash_)
+                             self._hash)
+        
+    def pack(self):
+        return json.dumps(self.__dict__)
+
 
 def generate_block(block, txns, pow_):
-    return Block(block.hash_, txns, pow_)
+    
+    if block is None:
+        return Constants.GENESIS
+    else:
+        return Block(block._hash, txns, pow_)
 
 def decode_JSON(dict_):
     return Block(dict_["last_hash"], dict_["data"], dict_["pow"],
@@ -104,7 +111,7 @@ def decode_JSON(dict_):
 
 
 # A Class inheriting from JSONEcoder to encode the Block class to json dict
-class ClsEncoder(JSONEncoder):
+class ClsEncoder(json.JSONEncoder):
     def default(self, o):
         return o.__dict__
 
