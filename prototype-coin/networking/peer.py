@@ -1,18 +1,49 @@
 import asyncio
+import copy
 import functools
 import json
+import logging
 from json.decoder import JSONDecodeError
 
 import websockets
 from websockets.exceptions import *
 
-from connection import PeerConnection
+from networking.connection import PeerConnection
 
 PORT = 11111
 IP = 'localhost'
 URI = f'ws://{IP}:{PORT}'
 
 loop = asyncio.get_event_loop()
+
+def server(func=None, *, webname=None):
+    
+    if func is None:
+        return functools.partial(server, type=type, webname=webname)
+    
+    func.server = True
+    func.webname = webname if webname else func.__name__
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    
+    return wrapper
+
+def client(func=None, *, webname=None):
+    
+    if func is None:
+        return functools.partial(server, type=type, webname=webname)
+    
+    func.client = True
+    func.webname = webname if webname else func.__name__
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+    
+    return wrapper
+
 
 class Peer:
     
@@ -65,12 +96,11 @@ class Peer:
         Called by websockets.serve().
         """
     
-        print(f'Peer connected: {websocket.remote_address[0]}: \
-            {websocket.remote_address[1]}')
+        print(f'Peer connected: {websocket.remote_address[0]}:{websocket.remote_address[1]}')
 
         conn = PeerConnection(websocket)
         self.inbound.add(conn)
-        await conn.listener()
+        await conn.listener(handler=self.handler)
         
         
         self.inbound.remove(conn)
@@ -84,17 +114,27 @@ class Peer:
             connection (PeerConnection): The peer connection instance.
         """
         
+        logging.info(f'{connection.remote_addr[0]}:{connection.remote_addr[1]} received new message: {data}')
+        
         try:
             data = json.loads(data)
+            
+            command_name = list(data.values())[0]
+            
+            data_temp = copy.deepcopy(data)
+            del data_temp['command']
+            command_params = data_temp
+            command = getattr(self, command_name)
+            
+            response = await asyncio.gather(command(command_params))
+            await connection.send(list(response)[0].result())
         except JSONDecodeError:
             print(f'{connection.remote_addr[0]}:{connection.remote_addr[1]} -  \
                 Invalid data format')
             return
         
-        command_name = list(data.values())[0][0]
-        command = getattr(self, 'command_name')()
-
-    
+        except AttributeError:
+            self.default(data)
         
     async def connect(self, addr):
         """Connect to a peer
@@ -107,6 +147,7 @@ class Peer:
             _type_: _description_
         """
         
+        #TODO: check if this connection already exits
         
         if isinstance(addr, tuple):
             uri = f'ws://{addr[0]}:{addr[1]}'
@@ -119,7 +160,7 @@ class Peer:
         print(f'Connected succesfully to peer at {uri}')
         self.last_conn = conn
         
-        loop.create_task(conn.listener())
+        loop.create_task(conn.listener(handler=self.handler))
 
         
     async def disconnect(self, peer_conn):
@@ -182,7 +223,7 @@ class Peer:
         return True
     
     
-    async def broadcast(self, data, raw=False):
+    async def broadcast(self, data, raw=False, wait=False):
         """Broadcasts a message to all known peers
 
         Args:
@@ -191,41 +232,33 @@ class Peer:
             json. Defaults to False.
         """
         
-        for peer in self.inbound:
-            peer.send(data, raw)
-
-        for peer in self.outbound:
-            peer.send(data, raw)
-
-
-def server(func=None, *, webname=None):
-    
-    if func is None:
-        return functools.partial(server, type=type, webname=webname)
-    
-    func.server = True
-    func.webname = webname if webname else func.__name__
-    
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-    
-    return wrapper
-
-def client(func=None, *, webname=None):
-    
-    if func is None:
-        return functools.partial(server, type=type, webname=webname)
-    
-    func.client = True
-    func.webname = webname if webname else func.__name__
-    
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        return func(*args, **kwargs)
-    
-    return wrapper
+        coros = [peer.send(data, raw) for peer in self.inbound]
+        coros += [peer.send(data, raw) for peer in self.outbound]
+        await asyncio.gather(*coros)
         
+        
+    def connections(self):
+        return len(self.inbound) + len(self.outbound)
+    
+    @server
+    def default(self, data):
+        print(data)
+
+async def main():
+    
+    peer = Peer()
+    server = await websockets.serve(peer.init_connection, IP, 11111)
+    print(f'Server started. Running on ws://{IP}:11111')
+    
+    await peer.connect('ws://localhost:22222')
+    await peer.connect('ws://localhost:33333')
+    await peer.broadcast('hello', raw=True)
+    # await peer.disconnect(3)
+    
+    print('Finished')
+    await server.wait_closed()
+    
+
         
 
 if __name__ == '__main__':
@@ -240,4 +273,3 @@ if __name__ == '__main__':
        
 # Lazy client: 
 # py -m websockets ws://localhost:1234
-
