@@ -1,7 +1,10 @@
-from Block import Constants, Transaction, Block
 import os
+
 import pandas as pd
-from TreeNode import TreeNode, strip_short, get_end_children
+
+from block import Block, Constants, Transaction
+from treenode import TreeNode, get_end_children, strip_short
+import treenode
 
 
 class Blockchain:
@@ -66,7 +69,7 @@ class Blockchain:
                     return False
                 
                     # Return True if found
-                elif block.last_hash == root.data.hash_:
+                elif block.last_hash == root.data._hash:
                     root.add_child(TreeNode(block))
                     return True
                 
@@ -80,7 +83,7 @@ class Blockchain:
             # Check if unconfirmed block is empty and check if last block is on
             # confirmed chain
             if self.unconfirmed is None:
-                if block.last_hash == self.chain[-1].hash_:
+                if block.last_hash == self.chain[-1]._hash:
                     self.unconfirmed = TreeNode(block)
                 else:
                     self.orphaned_blocks.append(block)
@@ -140,7 +143,7 @@ class Blockchain:
             for block in self.chain:
                 metadata_list.append([block.timestamp,
                                       block.last_hash, 
-                                      block.proof, block.hash_,
+                                      block.proof, block._hash,
                                       len(txns_list),
                                       len(block.txns)])
                 
@@ -179,7 +182,7 @@ class Blockchain:
                 timestamp = row['Timestamp'] 
                 last_hash = row['Last hash']
                 pow_ = row['POW'] 
-                hash_ = row['Hash']
+                _hash = row['Hash']
                 
                 line = row['Line']
                 length = row['Length']
@@ -192,7 +195,7 @@ class Blockchain:
                                             txn_row['outputs'], 
                                             txn_row['proof']))
                 
-                block = Block(last_hash, txns, pow_, timestamp, hash_)
+                block = Block(last_hash, txns, pow_, timestamp, _hash)
                 self.add_block(block, is_confirmed=True)
             
             if not self.unconfirmed is None and \
@@ -221,6 +224,27 @@ class Blockchain:
             return None
         else:
             return [block.data for block in get_end_children(self.unconfirmed)]
+        
+    def get_block(self, _hash):
+        """Retrieves a block from the blockchain by a given hash
+
+        Args:
+            _hash (str): The hash
+
+        Returns:
+            Block: The block that was found. returns None if not found
+        """
+        
+        for block in self.chain:
+            if block._hash == _hash:
+                return block
+        
+        found, block = treenode.findattr(_hash, '_hash', self.unconfirmed, )
+        
+        if block is None:
+            return
+        else:
+            return block.data
                 
             
         
