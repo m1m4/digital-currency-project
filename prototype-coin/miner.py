@@ -1,7 +1,8 @@
-from Block import *
 import time
 from hashlib import *
 from multiprocessing import *
+
+from block import *
 
 
 def timer(func):

@@ -1,12 +1,13 @@
 import hashlib
-import json
-from Block import ClsEncoder, Transaction
-import random
-
-from binascii import hexlify
-from mnemonic import Mnemonic
-import bip32utils
 import hmac
+import json
+import random
+from binascii import hexlify
+
+import bip32utils
+from mnemonic import Mnemonic
+
+from block import ClsEncoder, Transaction
 
 
 class Wallet:
