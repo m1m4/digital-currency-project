@@ -127,21 +127,58 @@ def strip_short(root, diff):
             
             
 def find(data, root, i=0):
+    """finds a Treenode with the given data
+
+    Args:
+        data (_type_): The data to find
+        root (_type_): The root
+        i (int, internal): Used for recursiveness.
+
+    Returns:
+        _type_: _description_
+    """
     
     # Return false if there's no children
     if root is None:
-        return False
+        return False, None
     
         # Return True if found
     elif data == root.data:
         return True, root
     
     elif i == len(root.children):
-        return False
+        return False, None
 
     else:
         return find(data, root.children[i], 0) or \
             find(data, root, i + 1)
+            
+def findattr(data, attr, root, i=0):
+    """finds a Treenode with the given data
+
+    Args:
+        data (_type_): The data to find
+        root (_type_): The root
+        i (int, internal): Used for recursiveness.
+
+    Returns:
+        _type_: _description_
+    """
+    
+    # Return false if there's no children
+    if root is None:
+        return False, None
+    
+        # Return True if found
+    elif data == getattr(root.data, attr):
+        return True, root
+    
+    elif i == len(root.children):
+        return False, None
+
+    else:
+        return findattr(data, attr, root.children[i], 0) or \
+            findattr(data, attr, root, i + 1)
             
 def insert(data, root, new_data=None, i=0):
     """If the data is matched, insert node as a child
