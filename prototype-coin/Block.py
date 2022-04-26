@@ -92,7 +92,7 @@ class Block:
         return BlockMetadata(self.timestamp, self.last_hash, self.proof,
                              self._hash)
         
-    def pack(self):
+    def json(self):
         return json.dumps(self.__dict__)
 
 
