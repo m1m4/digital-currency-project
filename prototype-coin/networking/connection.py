@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import json
 
 import websockets
@@ -76,3 +77,7 @@ class PeerConnection():
         """Closes this connection.
         """
         await self.websocket.close()
+    
+    @functools.cached_property
+    def json(self):
+        return json.dumps(self.__dict__)
