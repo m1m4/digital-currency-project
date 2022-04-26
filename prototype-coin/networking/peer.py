@@ -2,7 +2,6 @@ import asyncio
 import copy
 import functools
 import json
-import logging
 from json.decoder import JSONDecodeError
 
 import websockets
@@ -17,7 +16,14 @@ URI = f'ws://{IP}:{PORT}'
 loop = asyncio.get_event_loop()
 
 def server(func=None, *, webname=None):
-    
+    """A Server decorator. marks the decorated function as a web function,
+    which lets the peer class register it as a valid server function for the
+    handler
+
+    Args:
+        webname (str, optional): The name the command will be called when passed
+        over the web. If no name is given, it will use the function's name.
+    """
     if func is None:
         return functools.partial(server, type=type, webname=webname)
     
@@ -31,12 +37,30 @@ def server(func=None, *, webname=None):
     return wrapper
 
 def client(func=None, *, webname=None):
-    
+    """A Client decorator. marks the decorated function as a web function,
+    which lets the peer class register it as a valid client function for the
+    handler. If no custom webname is giver 
+
+    Args:
+        webname (str, optional): The name the command will be called when passed
+        over the web. If no name is given, it will use the function's name. It
+        is recommended in this case to add undercore ('_') before the name of
+        the function as it will automatically sign it as the same command as the
+        server equivalent.
+    """
     if func is None:
         return functools.partial(server, type=type, webname=webname)
     
     func.client = True
-    func.webname = webname if webname else func.__name__
+    
+    if webname is None:
+        if func.__name__.startswith('_'):
+            func.webname = func.__name__[1:]
+        else:
+            func.webname = func.__name__
+    else:
+        func.webname = webname
+
     
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -60,10 +84,12 @@ class Peer:
         self.commands = {}
         
         methods = []
+        
+        cls = type(self)
         # attribute is a string representing the attribute name
-        for attribute in dir(Peer):
+        for attribute in dir(cls):
             # Get the attribute value
-            attribute_value = getattr(Peer, attribute)
+            attribute_value = getattr(cls, attribute)
             # Check that it is callable
             if callable(attribute_value):
                 # Filter all dunder (__ prefix) methods
@@ -114,7 +140,7 @@ class Peer:
             connection (PeerConnection): The peer connection instance.
         """
         
-        logging.info(f'{connection.remote_addr[0]}:{connection.remote_addr[1]} received new message: {data}')
+        print(f'{connection.remote_addr[0]}:{connection.remote_addr[1]} received new message: {data}')
         
         try:
             data = json.loads(data)
@@ -124,10 +150,10 @@ class Peer:
             data_temp = copy.deepcopy(data)
             del data_temp['command']
             command_params = data_temp
-            command = getattr(self, command_name)
+            command = self.commands[command_name][0]
             
-            response = await asyncio.gather(command(command_params))
-            await connection.send(list(response)[0].result())
+            response = await command(command_params)
+            await connection.send(response)
         except JSONDecodeError:
             print(f'{connection.remote_addr[0]}:{connection.remote_addr[1]} -  \
                 Invalid data format')
@@ -223,6 +249,53 @@ class Peer:
         return True
     
     
+    async def recvall(self, return_when=None, timeout=2):
+        """recieves from all connections and blocks the the function untill
+        received
+
+        Args:
+            return_when (optional): Same as return_when in asyncio.wait().
+            defaults to asyncio.FIRST_COMPLETED
+            timeout (int, optional): Timeout for the requests. Defaults to 2
+            
+        Returns:
+            any: The data that was received
+        """
+        if return_when is None:
+            return_when = asyncio.FIRST_COMPLETED
+        
+        tasks_full = [(peer, asyncio.create_task(peer.recv())) 
+                      for peer in self.inboud]
+        
+        tasks_full += [(peer, asyncio.create_task(peer.recv())) 
+                       for peer in self.outboud]
+        
+        tasks = [task[1] for task in tasks_full]
+        
+        done, pending = await asyncio.wait(tasks, return_when=return_when,
+                                           timeout=timeout)
+        
+        for task in pending:
+            task.cancel()
+        
+        if return_when == asyncio.FIRST_COMPLETED:
+            
+            # Find the peer that answered first
+            for peer in tasks_full:
+                if peer[1] in done:
+                    return peer[0], list(done)[0].result()
+        else:
+            # Remove tasks that didn't finish
+            results = []
+            for peer in tasks_full:
+                if peer[1] in done:
+                    results.append((peer[0], peer[1].result()))
+                    
+            return results
+
+                
+        
+        
     async def broadcast(self, data, raw=False, wait=False):
         """Broadcasts a message to all known peers
 
