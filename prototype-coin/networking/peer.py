@@ -121,14 +121,11 @@ class Peer:
         """Initiated whenever a peer wants to connect to us.
         Called by websockets.serve().
         """
-    
-        print(f'Peer connected: {websocket.remote_address[0]}:{websocket.remote_address[1]}')
-
+        
         conn = PeerConnection(websocket)
         self.inbound.add(conn)
+        #TODO: make sure the connection is working and valid before adding it
         await conn.listener(handler=self.handler)
-        
-        
         self.inbound.remove(conn)
         
     async def handler(self, data, connection):
@@ -140,7 +137,7 @@ class Peer:
             connection (PeerConnection): The peer connection instance.
         """
         
-        print(f'{connection.remote_addr[0]}:{connection.remote_addr[1]} received new message: {data}')
+        print(f'{connection.str_addr}: received new message {data}')
         
         try:
             data = json.loads(data)
@@ -151,12 +148,13 @@ class Peer:
             del data_temp['command']
             command_params = data_temp
             command = self.commands[command_name][0]
+            #TODO: pass paramater as normal arguments instead of one big dictionary
             
             response = await command(command_params)
             await connection.send(response)
         except JSONDecodeError:
-            print(f'{connection.remote_addr[0]}:{connection.remote_addr[1]} -  \
-                Invalid data format')
+            #TODO: send error message
+            print(f'{connection.str_addr}: ERROR - not in json format')
             return
         
         except AttributeError:
@@ -180,10 +178,8 @@ class Peer:
         else:
             uri = addr
         client = await websockets.connect(uri)
-        conn = PeerConnection(client)
+        conn = PeerConnection(client, connected=False)
         self.outbound.add(conn)
-        
-        print(f'Connected succesfully to peer at {uri}')
         self.last_conn = conn
         
         loop.create_task(conn.listener(handler=self.handler))
@@ -265,10 +261,10 @@ class Peer:
             return_when = asyncio.FIRST_COMPLETED
         
         tasks_full = [(peer, asyncio.create_task(peer.recv())) 
-                      for peer in self.inboud]
+                      for peer in self.inbound]
         
         tasks_full += [(peer, asyncio.create_task(peer.recv())) 
-                       for peer in self.outboud]
+                       for peer in self.outbound]
         
         tasks = [task[1] for task in tasks_full]
         
@@ -283,13 +279,13 @@ class Peer:
             # Find the peer that answered first
             for peer in tasks_full:
                 if peer[1] in done:
-                    return peer[0], list(done)[0].result()
+                    return peer[0], json.loads(list(done)[0].result())
         else:
             # Remove tasks that didn't finish
             results = []
             for peer in tasks_full:
                 if peer[1] in done:
-                    results.append((peer[0], peer[1].result()))
+                    results.append((peer[0], json.loads(peer[1].result())))
                     
             return results
 
@@ -345,4 +341,4 @@ if __name__ == '__main__':
         loop.close()
        
 # Lazy client: 
-# py -m websockets ws://localhost:1234
+# py -m websockets ws://localhost:22222

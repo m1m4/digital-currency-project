@@ -1,9 +1,5 @@
 import asyncio
-from typing import Type
-from unicodedata import name
-from urllib import response
-from requests import request
-
+import json
 import websockets
 
 from blockchain import Blockchain
@@ -65,11 +61,8 @@ class Node(Peer):
             request['block_hash'] = block_hash 
         elif not block_hash is None:
             request['height'] = height 
-        else:
-            print('get_block function was called without arguments.')
-            return
         
-        response = self.request(request)
+        response = await self.request(request)
         
         #TODO: fetch results and check validity of blocks  
         return response
@@ -98,12 +91,12 @@ class Node(Peer):
         
         
         #TODO: fetch results and check validity of blocks 
-        response = self.request(request)
+        response = await self.request(request)
         return response
     
     @client
     async def _get_nodes(self):
-        response = self.request({'command': self._get_nodes.webname})
+        response = await self.request({'command': self._get_nodes.webname})
 
         #TODO: connect to the new nodes
         return response
@@ -111,57 +104,101 @@ class Node(Peer):
     @client
     async def _get_height(self):
         
-        return self.request({'command': self._get_height.webname})
+        return await self.request({'command': self._get_height.webname})
     
     @client
     async def _get_hash(self, height):
         
-        return self.request({'command': self._get_hash.webname,
+        return await self.request({'command': self._get_hash.webname,
                    'height': height})
     
     @client
     async def _get_addr(self, conn):
-        return self.request({'command': self._get_height.webname},
+        return await self.request({'command': self._get_height.webname},
                             broadcast=False, conn=conn)
     
     @server
     async def get_block(self, params):
         
-        #TODO: add height support
         block_hash = params.get('block_hash')
+        height = params.get('height')
         
-        if block_hash is None:
-            print('recv_block: got wrong parameters')
-            return
-            #TODO: Create error codes
-        
-        block = self.blockchain.get_block(block_hash)
-        
-        if block is None:
-            block = 'not found'
+        if not block_hash is None:
+            block = self.blockchain.get_block(block_hash)
             
-        return {'response': block}
+            if block is None:
+                block = 'not found'
+        
+        elif not height is None:
+            block = self.blockchain.chain[height - 1]
+            
+        else:
+            block = self.blockchain.last_block()
+            
+        return {'response': block.json()}
     
     @server
-    async def get_blocks(self):
-        pass
+    async def get_blocks(self, params):
+        
+        hashes = params.get("hashes")
+        start_height = params.get("start_height")
+        end_height = params.get("end_height")
+        
+        blocks = []
+        if not hashes is None:    
+            
+            for _hash in hashes:
+                block = self.blockchain.get_block(_hash)
+                if not block is None:
+                    blocks.append(block.json())
+                    
+        else:
+            if start_height is None:
+                start_height = 1
+            
+            if end_height is None:
+                end_height = self.blockchain.height()
+                
+            temp_blocks = self.blockchain.chain[start_height - 1:end_height]
+            blocks = [block.json() for block in temp_blocks]
+            
+        return {'response': blocks}
     
     @server
-    async def get_nodes(self):
-        pass
+    async def get_nodes(self, params):
+        
+        conns_inbound = [conn.addr for conn in self.inbound]
+        conns_outbound = [conn.addr for conn in self.outbound]
+        
+        return {'response': {'inbound': conns_inbound,
+                             'outbound': conns_outbound}}
     
     @server
-    async def get_height(self):
-        pass
+    async def get_height(self, params):
+        
+        unconfirmed = params.get('unconfirmed')
+        
+        if unconfirmed is None:
+            unconfirmed = False
+        
+        return {'response': self.blockchain.height(unconfirmed=unconfirmed)}
     
     @server
-    async def get_hash(self):
-        pass
-    
+    async def get_hash(self, params):
+        
+        height = params.get('height')
+        
+        if not height is None:
+            _hash = self.blockchain.chain(height - 1)._hash
+        else:
+            _hash = self.blockchain.last_block()._hash
+            
+        return {'response': _hash}
+             
     @server
-    async def get_addr(self):
-        pass
-    
+    async def get_addr(self, params):
+        
+        return {'response': self.wallet.addr}
     
     
 async def main():
@@ -173,7 +210,8 @@ async def main():
     
     await node.connect('ws://localhost:22222')
     # await node.connect('ws://localhost:33333')
-    response = await node._get_block(block_hash='123456')
+    print('Requesting last block... ')
+    response = await node._get_block()
     print(response)
     # await peer.disconnect(3)
     

@@ -42,7 +42,6 @@ BlockMetadata = namedtuple('BlockMetadata', ['timestamp', 'last_hash',
 """
 
 
-#TODO: convert to dataclass
 # The main block class
 class Block:
 

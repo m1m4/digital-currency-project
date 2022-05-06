@@ -127,6 +127,7 @@ class Blockchain:
             if start <= id <= end:
                 print(f'Block #{id}:\n' + str(self.chain.get(id)))
 
+    #TODO: imporve save function
     def save(self, func=None):
         """Save the blockchain in memory to the disk using the default method or
         a custom one
@@ -172,8 +173,10 @@ class Blockchain:
         """
         
         if func is None:
+            
             metadata_df = pd.read_csv(r'Blockchain\metadata.csv')
             total_txns_df = pd.read_csv(r'Blockchain\txns.csv')
+            
             
             self.chain = []
             
@@ -199,7 +202,7 @@ class Blockchain:
                 self.add_block(block, is_confirmed=True)
             
             if not self.unconfirmed is None and \
-            self.last_block(confirmed=True).hash == self.unconfirmed.data.last_hash:
+            self.last_block(confirmed=True)._hash == self.unconfirmed.data.last_hash:
                 self.unconfirmed = None
                 
         else:
@@ -245,6 +248,22 @@ class Blockchain:
             return
         else:
             return block.data
+              
+        
+    def height(self, unconfirmed=False):
+        """Returns the height of this blockchain
+
+        Args:
+            unconfirmed (bool, optional): If set to true it gets the height
+            including the longest unconfirmed part. Defaults to False.
+
+        Returns:
+            int: The height
+        """
+        if unconfirmed:
+            return len(self.chain) + self.unconfirmed.max_level()
+        else:
+            return len(self.chain)
                 
             
         
