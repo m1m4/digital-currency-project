@@ -5,14 +5,27 @@ import json
 import websockets
 from websockets.exceptions import *
 
-
+#TODO: maybe convert to child class of websocket?
 class PeerConnection():
     
-    def __init__(self, websocket):
+    def __init__(self, websocket, connected=True):
+        """Initializes the PeerConnection class
+
+        Args:
+            websocket (_type_): _description_
+            connected (bool, optional): Helps indicates if were the ones that
+            initialized the connection or a new peer tried to connect to us.
+            Defaults to True.
+        """
         
         self.websocket = websocket
-        self.remote_addr = websocket.remote_address
-        self.local_addr = websocket.local_address
+        self.str_addr = f'{websocket.remote_address[0]}:{websocket.remote_address[1]}'
+        self.addr = websocket.remote_address
+        
+        if connected:
+            print(f'Peer connected - {self.str_addr}')
+        else:
+            print(f'Connnected to peer: {self.str_addr}')
         
     async def listener(self, handler=None):
         """A listener that listens to all incoming data from this connection
@@ -39,7 +52,7 @@ class PeerConnection():
             await self.close()
         
         finally:
-            print(f'Disconnected from {self.remote_addr[0]}:{self.remote_addr[1]}')
+            print(f'Disconnected from {self.str_addr}')
                     
     
     async def send(self, data, raw=False):
@@ -80,4 +93,8 @@ class PeerConnection():
     
     @functools.cached_property
     def json(self):
-        return json.dumps(self.__dict__)
+        new_dict = {'websocket': self.websocket.__dict__, 'str_addr': self.str_addr}
+        return json.dumps(new_dict)
+    
+    
+    
