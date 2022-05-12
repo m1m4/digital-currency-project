@@ -87,6 +87,8 @@ class Blockchain:
                     self.unconfirmed = TreeNode(block)
                 else:
                     self.orphaned_blocks.append(block)
+                
+                return
 
             if not insert(block, self.unconfirmed):
                 self.orphaned_blocks.append(block)
