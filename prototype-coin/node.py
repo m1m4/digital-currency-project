@@ -2,13 +2,13 @@ import asyncio
 import json
 
 import websockets
-from numpy import broadcast_arrays
 
 import block as blk
 from blockchain import Blockchain
 from networking.peer import Peer, client, server
 from wallet import Wallet
 
+#TODO: replace get_event_loop()
 loop = asyncio.get_event_loop()
 
 
@@ -17,7 +17,7 @@ class Node(Peer):
     ALL = 0
     SINGLE = 1
 
-    def __init__(self, blockchain=None, wallet=None) -> None:
+    def __init__(self, blockchain=None, wallet=None, miner=None) -> None:
         super().__init__()
 
         if blockchain is None:
@@ -29,6 +29,9 @@ class Node(Peer):
             self.wallet = Wallet()
         else:
             self.wallet = wallet
+
+        self.miner = miner
+
 
         self.received = []  # Stuff received from the network
         # print(self.commands)
@@ -81,25 +84,33 @@ class Node(Peer):
             response = await self.get_block(block_hash, mode=Node.SINGLE, conn=server_conn)
             response_dict = json.loads(response)
             if response_dict['type'] != 'okay':
-                print(
-                    f'WARNING - did not get reqested block. message: {response}')
-
+                print(f'WARNING - did not get reqested block. message:\
+{response}')
+                return
+            
             block_dict = response_dict['data']['block']
             block = blk.from_dict(block_dict)
             self.blockchain.add_block(block)
+            
+            # TODO: have a list of known blocks
+            await self.post_block(block)
 
-        # Send to all known peers
-        data = self.pack(Node.POST,
-                         {'command': 'post_block', 'hash': block._hash})
-        await self.broadcast(data)
+
 
     @client
-    def post_txn(self, txn):
-        pass
+    async def post_txn(self, txn):
+        data = self.pack(Node.POST,
+                         {'command': 'post_block', 'txn': dict(txn._asdict)})
+        await self.broadcast(data)
 
     @server
-    def _post_txn(self, txn):
-        pass
+    async def _post_txn(self, conn, txn):
+        
+        #TODO: have a list of known txns
+        if self.miner is None:
+            await self.post_txn(txn)
+        else:
+            raise NotImplementedError('mempool not implemeted yet.')
 
     @client
     async def get_block(self, block_hash=None, height=None, mode=None, conn=None):
