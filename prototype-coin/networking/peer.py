@@ -72,21 +72,21 @@ def client(func=None, *, webname=None):
 
 class Peer:
 
-    ALL = 0 # Choose all peers
-    OUTBOUND = 1 # Chosse only outbound
-    INBOUND = 2 # Choose only inbound
-    LAST = 3 # Choose last peer (not recommended)
-    
-    OKAY = 4 # Successfully replied to a get request
-    GET = 5 # Get something
-    POST = 6 # Post something
-    ERROR = 7 # Sent whenever a get reqest has failed
+    ALL = 0  # Choose all peers
+    OUTBOUND = 1  # Chosse only outbound
+    INBOUND = 2  # Choose only inbound
+    LAST = 3  # Choose last peer (not recommended)
+
+    OKAY = 4  # Successfully replied to a get request
+    GET = 5  # Get something
+    POST = 6  # Post something
+    ERROR = 7  # Sent whenever a get reqest has failed
 
     def __init__(self) -> None:
 
-        # Peers that are connected to us
+        # Peers that are connected to us. Used to answer requests
         self.inbound = set()
-        # Peer that we are connected to
+        # Peer that we are connected to. Used to send stuff
         self.outbound = set()
 
         self.last_conn = None
@@ -150,32 +150,40 @@ class Peer:
 
         try:
             data = json.loads(data)
-            
-            datatype, data = list(data.values())[0], list(data.values())[1]
-            command_name = list(data.values())[0]
 
-            data_temp = copy.deepcopy(data)
-            del data_temp['command']
-            command_params = data_temp
+            datatype, body = data['type'], data['data']
+            command_name = body['command']
+
+            body_temp = copy.deepcopy(body)
+            del body_temp['command']
+            command_params = body_temp
             command = self.commands[command_name][0]
-            
+
             # TODO: pass paramater as normal arguments instead of one big dictionary
             if datatype == 'get':
                 response = await command(command_params)
             if datatype == 'post':
                 response = await command(connection, command_params)
-            
-            print(f'Sending: {response}')
+
             await connection.send(response)
-            
+
         except JSONDecodeError:
             print(f'{connection.str_addr}: ERROR - not in json format')
             await connection.send(self.pack(Peer.ERROR),
-                                  {'message': 'data was sent in wrong format'})
+                                  {'message': 'data should be sent in json format'})
             return
 
-        except AttributeError:
-            self.default(data)
+        except KeyError:
+            print(f'{connection.str_addr}: ERROR - wrong json format')
+            await connection.send(self.pack(Peer.ERROR),
+                                  {'message': 'wrong json format'})
+            return
+
+        # except AttributeError as e:
+        #     exc_type, exc_obj, exc_tb = sys.exc_info()
+        #     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        #     print(f'ERROR: {e} at {fname} in line {exc_tb.tb_lineno}')
+        #     self.default(data)
 
     async def connect(self, addr):
         """Connect to a peer
@@ -188,18 +196,28 @@ class Peer:
             _type_: _description_
         """
 
-        # TODO: check if this connection already exits
+        if isinstance(addr, str):
+            addr = addr.split(':')
+            if len(addr) != 3:
+                print('ERROR - Tried to connect to an invalid address')
 
-        if isinstance(addr, tuple):
-            uri = f'ws://{addr[0]}:{addr[1]}'
-        else:
-            uri = addr
+            addr = (addr[1][2:], addr[2])
+
+        uri = f'ws://{addr[0]}:{addr[1]}'
+
+        # Check if this connection already exits
+        for node in self.outbound:
+            if node.addr == addr:
+                print(f'ERROR - already conncted to {node.str_addr}')
+                return
+
         client = await websockets.connect(uri)
         conn = PeerConnection(client, connected=False)
         self.outbound.add(conn)
         self.last_conn = conn
 
         loop.create_task(conn.listener(handler=self.handler))
+        return conn
 
     async def disconnect(self, peer_conn):
         """Disconnect from a peer
@@ -273,11 +291,11 @@ class Peer:
         if return_when is None:
             return_when = asyncio.FIRST_COMPLETED
 
-        tasks_full = [(peer, asyncio.create_task(peer.recv()))
-                      for peer in self.inbound]
+        # tasks_full = [(peer, asyncio.create_task(peer.recv()))
+        #               for peer in self.inbound]
 
-        tasks_full += [(peer, asyncio.create_task(peer.recv()))
-                       for peer in self.outbound]
+        tasks_full = [(peer, asyncio.create_task(peer.recv()))
+                      for peer in self.outbound]
 
         tasks = [task[1] for task in tasks_full]
 
@@ -298,6 +316,7 @@ class Peer:
             results = []
             for peer in tasks_full:
                 if peer[1] in done:
+                    # print(f'{type(peer[1].result())}: {peer[1].result()}')
                     results.append((peer[0], json.loads(peer[1].result())))
 
             return results
@@ -311,8 +330,8 @@ class Peer:
             json. Defaults to False.
         """
 
-        coros = [peer.send(data, raw) for peer in self.inbound]
-        coros += [peer.send(data, raw) for peer in self.outbound]
+        coros = [peer.send(data, raw) for peer in self.outbound]
+        # coros += [peer.send(data, raw) for peer in self.inbound]
         await asyncio.gather(*coros)
 
     def connections(self):
