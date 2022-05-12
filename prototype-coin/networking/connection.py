@@ -5,7 +5,6 @@ import json
 import websockets
 from websockets.exceptions import *
 
-#TODO: maybe convert to child class of websocket?
 class PeerConnection():
     
     def __init__(self, websocket, connected=True):
