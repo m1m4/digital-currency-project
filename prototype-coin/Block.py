@@ -4,6 +4,8 @@ from collections import namedtuple
 from hashlib import *
 import json
 
+from numpy import block
+
 Transaction = namedtuple('Transaction', ['ver', 'sender', 'receivers',
                                          'outputs', 'proof'])
 """Transaction namedtuple. It's a namedtuple named to store all the information
@@ -74,6 +76,8 @@ class Block:
         if _hash is None:
             self._hash = sha256(f'{self.timestamp}{self.last_hash} \
                         {self.txns}{self.proof}'.encode()).hexdigest()
+        else:
+            self._hash = _hash
 
         self.txns = txns
 
@@ -91,7 +95,7 @@ class Block:
                              self._hash)
 
     def json(self):
-        return json.dumps(self.__dict__)
+        return self.__dict__
 
 
 def generate_block(block, txns, pow_):
@@ -101,6 +105,9 @@ def generate_block(block, txns, pow_):
     else:
         return Block(block._hash, txns, pow_)
 
+def from_dict(block_dict):
+    return Block(block_dict['last_hash'], block_dict['txns'],
+                 block_dict['proof'], block_dict['timestamp'], block_dict['_hash'])
 
 def decode_JSON(dict_):
     return Block(dict_["last_hash"], dict_["data"], dict_["pow"],
@@ -116,4 +123,4 @@ class ClsEncoder(json.JSONEncoder):
 # Premade object of the block class
 class Constants:
     GENESIS = Block('void', [Transaction('0.1', 'void',
-                                         ('mima', 10), None, None)], '0')
+                                         ('mima', 10), None, None)], '0', timestamp=0)
