@@ -22,9 +22,9 @@ class PeerConnection():
         self.addr = websocket.remote_address
         
         if connected:
-            print(f'Peer connected - {self.str_addr}')
+            print(f'INFO {self.str_addr} - Connected')
         else:
-            print(f'Connnected to peer: {self.str_addr}')
+            print(f'INFO - Connnected to peer {self.str_addr}')
         
     async def listener(self, handler=None):
         """A listener that listens to all incoming data from this connection
@@ -51,7 +51,7 @@ class PeerConnection():
             await self.close()
         
         finally:
-            print(f'Disconnected from {self.str_addr}')
+            print(f'INFO - Disconnected from {self.str_addr}')
                     
     
     async def send(self, data, raw=False):
@@ -63,10 +63,11 @@ class PeerConnection():
             json. Defaults to False.
         """
         
-        if raw: 
-            await self.websocket.send(data)
-        else:
-            await self.websocket.send(json.dumps(data))
+        if not raw:
+            data = json.dumps(data)
+
+        print(f'INFO {self.str_addr} - Sending {data}')
+        await self.websocket.send(data)
     
     async def recv(self, timeout=2):
         """Recieves data from the other end of this connection. Used to block an
@@ -75,8 +76,10 @@ class PeerConnection():
         Returns:
             any: The data
         """
+        
         try:
-            return await asyncio.wait_for(self.websocket.recv(), timeout=timeout)
+            response = await asyncio.wait_for(self.websocket.recv(), timeout=timeout)
+            return response
         except ConnectionClosedError:
             await self.close()
             return
