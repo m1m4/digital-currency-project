@@ -16,6 +16,8 @@ URI = f'ws://{IP}:{PORT}'
 loop = asyncio.get_event_loop()
 
 
+
+
 def server(func=None, *, webname=None):
     """A Server decorator. marks the decorated function as a web function,
     which lets the peer class register it as a valid server function for the
@@ -84,12 +86,19 @@ class Peer:
 
     def __init__(self) -> None:
 
-        # Peers that are connected to us. Used to answer requests
+        # Peers that are connected to us ie. client connections
         self.inbound = set()
-        # Peer that we are connected to. Used to send stuff
+        
+        # Peer that we are connected to ie. server connections
         self.outbound = set()
-
+        
         self.last_conn = None
+        
+        # Maximum amount of peers that can connect to us. -1 means no limit
+        self.max_outbound = -1
+        
+        # Maximum amount of peers we will connect to. -1 means no limit
+        self.max_inbound = -1
 
         self.commands = {}
 
@@ -125,6 +134,10 @@ class Peer:
 
             except AttributeError:
                 pass
+            
+    async def start(self, port):
+        self._server = await websockets.serve(self.init_connection, IP, port)
+        print(f'Server started. Listening on ws://{IP}:{port}')
 
     async def init_connection(self, websocket):
         """Initiated whenever a peer wants to connect to us.
@@ -146,12 +159,18 @@ class Peer:
             connection (PeerConnection): The peer connection instance.
         """
 
-        print(f'{connection.str_addr}: received new message {data}')
+        print(f'INFO {connection.str_addr} - Received new message {data}')
 
         try:
             data = json.loads(data)
 
             datatype, body = data['type'], data['data']
+            
+            # Check if got error
+            if datatype == 'error':
+                print(f'WARNING {connection.str_addr} - Received error: {body["message"]}')
+                return
+            
             command_name = body['command']
 
             body_temp = copy.deepcopy(body)
@@ -165,19 +184,28 @@ class Peer:
             if datatype == 'post':
                 response = await command(connection, command_params)
 
-            await connection.send(response)
+            if not response is None:
+                await connection.send(response)
 
         except JSONDecodeError:
             print(f'{connection.str_addr}: ERROR - not in json format')
             await connection.send(self.pack(Peer.ERROR),
-                                  {'message': 'data should be sent in json format'})
+                                  {'message': 'not in json format'})
             return
 
         except KeyError:
-            print(f'{connection.str_addr}: ERROR - wrong json format')
-            await connection.send(self.pack(Peer.ERROR),
-                                  {'message': 'wrong json format'})
+            print(f'{connection.str_addr}: ERROR - wrong format')
+            await connection.send(self.pack(Peer.ERROR,
+                                  {'message': 'wrong format'}))
             return
+        
+        except TypeError:
+            
+            if data is None:
+                print(f'{connection.str_addr}: INFO - got empty message')
+            print(f'{connection.str_addr}: ERROR - data must be a dictionary')
+            await connection.send(self.pack(Peer.ERROR,
+                                  {'message': 'data must be a dictionary'}))
 
         # except AttributeError as e:
         #     exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -216,7 +244,6 @@ class Peer:
         self.outbound.add(conn)
         self.last_conn = conn
 
-        loop.create_task(conn.listener(handler=self.handler))
         return conn
 
     async def disconnect(self, peer_conn):
@@ -286,38 +313,37 @@ class Peer:
             timeout (int, optional): Timeout for the requests. Defaults to 2
 
         Returns:
-            any: The data that was received
+            list(PeerConnection, str): A list of tuples with PeerConnection with
+            its corresponding answer
         """
         if return_when is None:
             return_when = asyncio.FIRST_COMPLETED
 
         # tasks_full = [(peer, asyncio.create_task(peer.recv()))
         #               for peer in self.inbound]
-
-        tasks_full = [(peer, asyncio.create_task(peer.recv()))
+        tasks_full = [(peer, asyncio.create_task(peer.recv(timeout=timeout)))
                       for peer in self.outbound]
 
+        # Take only the tasks to pass it to async.wait()
         tasks = [task[1] for task in tasks_full]
-
+        
         done, pending = await asyncio.wait(tasks, return_when=return_when,
                                            timeout=timeout)
-
+        
+        # Cancel all requests that didn't reponse within the specified timeout
         for task in pending:
             task.cancel()
 
         if return_when == asyncio.FIRST_COMPLETED:
-
             # Find the peer that answered first
-            for peer in tasks_full:
-                if peer[1] in done:
-                    return peer[0], json.loads(list(done)[0].result())
+            for request in tasks_full:
+                if request[1] in done:
+                    return request[0], json.loads(request[1].result())
         else:
-            # Remove tasks that didn't finish
             results = []
-            for peer in tasks_full:
-                if peer[1] in done:
-                    # print(f'{type(peer[1].result())}: {peer[1].result()}')
-                    results.append((peer[0], json.loads(peer[1].result())))
+            for request in tasks_full:
+                if request[1] in done:
+                    results.append((request[0], json.loads(request[1].result())))
 
             return results
 
@@ -351,14 +377,14 @@ class Peer:
             case Peer.POST:
                 return {'type': 'post', 'data': data}
             case Peer.ERROR:
-                return {'type': 'ERROR', 'data': data}
+                return {'type': 'error', 'data': data}
 
 
 async def main():
 
     peer = Peer()
-    server = await websockets.serve(peer.init_connection, IP, 11111)
-    print(f'Server started. Running on ws://{IP}:11111')
+    # server = await websockets.serve(peer.init_connection, IP, 11111)
+    # print(f'Server started. Running on ws://{IP}:11111')
 
     await peer.connect('ws://localhost:22222')
     await peer.connect('ws://localhost:33333')
