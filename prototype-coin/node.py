@@ -1,5 +1,6 @@
 import asyncio
 import json
+from urllib import response
 
 import websockets
 
@@ -35,8 +36,28 @@ class Node(Peer):
 
         self.received = []  # Stuff received from the network
         # print(self.commands)
+        
+    
+    async def start(self, port):
+        await super().start(port)
+        
+        # # Connect to as much connections as possible
+        # self.scan_network()
+        
+        # #TODO: Check last few hashed and get the most trustworthy nodes
+        # #TODO: Split block requests to disperse network pressure
+        
+        heights = self.get_height()
+        
+        max_peer = max(heights, key=lambda x:x[1])
+        max_peer = 
+        
+        
 
-    async def request(self, data, broadcast=True, conn=None):
+    async def request(self, data, broadcast=None, conn=None):
+        
+        if broadcast is None:
+            broadcast = Node.ALL
 
         match broadcast:
             case Node.ALL:
@@ -61,7 +82,6 @@ class Node(Peer):
         Args:
             block (Block): The block.
         """
-
         data = self.pack(Node.POST,
                          {'command': 'post_block', 'hash': block._hash})
         await self.broadcast(data)
@@ -75,6 +95,9 @@ class Node(Peer):
             params (_type_): _description_
         """
         block_hash = params.get('hash')
+        
+        if block_hash is None:
+            print(f'INFO {conn.str_addr} - Didnt receive hash for post_block')
 
         if self.blockchain.get_block(block_hash) is None:
 
@@ -90,27 +113,33 @@ class Node(Peer):
             
             block_dict = response_dict['data']['block']
             block = blk.from_dict(block_dict)
+            
+            print(f'INFO {conn.str_addr} - Got block with hash {block._hash}')
             self.blockchain.add_block(block)
             
             # TODO: have a list of known blocks
-            await self.post_block(block)
+            # await self.post_block(block)
+        
+        else: 
+            print(f'INFO {conn.str_addr} - Got existing block')
 
 
 
     @client
     async def post_txn(self, txn):
         data = self.pack(Node.POST,
-                         {'command': 'post_block', 'txn': dict(txn._asdict)})
+                         {'command': 'post_txn', 'txn': dict(txn._asdict())})
         await self.broadcast(data)
 
     @server
-    async def _post_txn(self, conn, txn):
+    async def _post_txn(self, conn, params):
         
         #TODO: have a list of known txns
         if self.miner is None:
-            await self.post_txn(txn)
+            print(f'INFO {conn.str_addr} - Got transaction')
+            # await self.post_txn(txn)
         else:
-            raise NotImplementedError('mempool not implemeted yet.')
+            raise NotImplementedError('mempool not implemented yet.')
 
     @client
     async def get_block(self, block_hash=None, height=None, mode=None, conn=None):
@@ -177,7 +206,18 @@ class Node(Peer):
     @client
     async def get_height(self):
 
-        return await self.request({'command': self._get_height.webname})
+        responses = await self.request({'command': self._get_height.webname})
+    
+        # Remove all the message wrappers and return only the list of the peers 
+        # with the height
+        response_new = []
+        for response in responses:
+            try:
+                response_new.append((response[0], response[1]['data']['height']))
+            except KeyError:
+                continue
+        
+        return response_new
 
     @client
     async def get_hash(self, height):
@@ -239,12 +279,21 @@ class Node(Peer):
 
     @server
     async def _get_nodes(self, params):
+        """Returns to the client all the outbound connection addresses they 
+        have. Does not get the inbound connections since they and will not
+        answer requests.
 
-        conns_inbound = [conn.addr for conn in self.inbound]
+        Args:
+            params (dict): the parameters of this command. Serves no use
+
+        Returns:
+            _type_: The connections packed as a dictionary with okay message
+        """
+
         conns_outbound = [conn.addr for conn in self.outbound]
 
         return self.pack(Node.OKAY,
-                         {'inbound': conns_inbound, 'outbound': conns_outbound})
+                         {'outbound': conns_outbound})
 
     @server
     async def _get_height(self, params):
@@ -276,20 +325,26 @@ class Node(Peer):
 
 async def main():
 
-    IP = '127.0.0.1'
+    # IP = '127.0.0.1'
     node = Node()
-    server = await websockets.serve(node.init_connection, IP, 11111)
-    print(f'Server started. Running on ws://{IP}:11111')
+    # server = await websockets.serve(node.init_connection, IP, 11111)
+    # print(f'Server started. Running on ws://{IP}:11111')
+    
+    await node.start(port=11111)
 
     await node.connect('ws://localhost:22222')
     # await node.connect('ws://localhost:33333')
     # print('Posting block... ')
-    # block = await node.get_block()
-    # print(block)
-    await node.post_block(node.blockchain.last_block())
+    height = await node.get_height()
+    print(height)
+    # print('Posting new Trasaction...')
+    # node.wallet.debug_generate_outputs(10, 1)
+    # txn = node.wallet.send(0, ('mima', 10))
+    
+    # await node.post_txn(txn)
     # await peer.disconnect(3)
 
-    await server.wait_closed()
+    await node._server.wait_closed()
 
 
 if __name__ == '__main__':
