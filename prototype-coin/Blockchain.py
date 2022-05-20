@@ -33,6 +33,7 @@ class Blockchain:
         else:
             self.chain = chain
 
+        # TODO: change default value to an empty treenode
         self.unconfirmed = None
         self.orphaned_blocks = list()
 
@@ -41,7 +42,15 @@ class Blockchain:
         in the blockchain, it is added to the orphaned blocks list
 
         Args:
-            block (Block): the block to add to the blockchain
+            block (Block): The block to add to the blockchain.
+            
+            is_confirmed (Bool): Tells the function if the block is valid. Use 
+            with caution since enabling it will insert it into the blockchain 
+            even if hashes doesn't match. Defaults to False.
+            
+            update_file (Bool): Update the blockchain in the disk when this 
+            block is placed. Defaults to True.
+            
         """
 
         # If it's already was checked
@@ -107,6 +116,13 @@ class Blockchain:
 
                 if update_file:
                     self.__update_file(self.last_block())
+    
+    def add_blocks(self, blocks,
+                   is_confirmed=False,
+                   update_file=True):
+        
+        for block in blocks:
+            self.add_block(block, is_confirmed=is_confirmed, update_file=update_file)
 
     def print_blocks(self, start=1, end=None):
         """Prints the blockchain to console. Use only when blockchain is very
@@ -256,6 +272,9 @@ class Blockchain:
             int: The height
         """
         if unconfirmed:
-            return len(self.chain) + self.unconfirmed.max_level()
+            try:
+                return len(self.chain) + self.unconfirmed.max_level() + 1
+            except AttributeError:
+                return len(self.chain)
         else:
             return len(self.chain)
