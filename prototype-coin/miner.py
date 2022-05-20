@@ -1,100 +1,189 @@
+import asyncio
+import hashlib
+import multiprocessing as mp
 import time
-from hashlib import *
-from multiprocessing import *
+from concurrent.futures import ProcessPoolExecutor
+from typing import Callable, Any
 
-from block import *
+from block import Block, Transaction
+import treenode as tree
+from blockchain import Blockchain
+from wallet import Wallet
 
+class Miner:
+    def __init__(self, miner_addr: str, max_txns: int=100):
 
-def timer(func):
-    # This function shows the execution time of
-    # the function object passed
-    def wrap_func(*args, **kwargs):
-        t1 = time.time()
-        result = func(*args, **kwargs)
-        t2 = time.time()
-        print(f'Function {func.__name__!r} executed in {(t2-t1):.4f}s')
-        return result
-    return wrap_func
+        self.max_txns = max_txns    # Max transaction to insert to each block
+        self.mempool = []   # Memory pool. holds pending transactions
 
+        self.miner_addr = miner_addr
 
-def found(value, difficulty):
-    val_hash = sha256(value.encode()).hexdigest()
-    # print(f'{value}: {hash}')
-    if val_hash.startswith(''.zfill(difficulty)):
-        return True
-    else:
-        return False
+        # TODO: recplace with queue
+        self.block = None
+        
+        self.block_ready = False
+        self.stop = asyncio.Event()
 
+    def get_difficulty(self):
+        # TODO: change difficulty to dynamic
+        return 7
 
-def find(offset, difficulty, queue):
+    def add_txn(self, txn: Transaction):
+        """Adds a transaction to the memory pool. will not add duplicate 
+        transactions
 
-    print('e o e  o')
-    count = offset
-    value = ''
+        Args:
+            txn (Transaction): The transaction.
+        """
+        # TODO: add transaction in index by mining fee (max_txns[0] should have
+        # the hightest fee)
 
-    found_ = False
-    while not found_:
-        if found(value, difficulty):
-            print('Found!')
-            queue.put_nowait(value)
-            return value
+        if not txn in self.mempool:
+            self.max_txns.append(txn)
 
-        value = str(count)
-        count += cpu_count()
+    def _find_hash(self, data, difficulty, offset, found_event):
 
-    print('Not found')
-    return None
+        # print(f'PID {mp.current_process().pid}: Searching for hash')
 
+        skip = mp.cpu_count()
+        data = str(data)
+        proof = 0 + offset
 
-def callback(result):
-    for res in result:
-        print(f'Found at {res} : {sha256(res.encode()).hexdigest()}')
+        while True:
 
+            if found_event.is_set():
+                # print(f'PID {mp.current_process().pid}: Cancelled')
+                return
 
-def foo(x1, q):
-    print('adding to queue ' + str(x1))
-    q.put(str(x1))
-    print('adding to queue ' + str(x1 * 2))
-    q.put(str(x1 * 2))
+            data_hash = hashlib.sha256(
+                (data + str(proof)).encode()).hexdigest()
 
+            diff_string = '0' * difficulty
+            if data_hash.startswith(diff_string):
+                return data_hash, str(proof)
+            else:
+                proof += skip
 
-def main():
-    pool = Pool()
+    async def mine(self, blockchain: Blockchain, handler: Callable[[Block], Any]):
 
-    # difficulty = int(input('Enter difficulty... '))
-    difficulty = 4
+        # TODO: Start mining a new block if a new block is received
 
-    res_queue = Queue(cpu_count())
+        loop = asyncio.get_running_loop()
+        block_ready = asyncio.Event()
+        ready = asyncio.Event()
+        ready.set()
+        
+        
 
-    # process_results = []
-    params_list = [(i, difficulty, res_queue) for i in range(cpu_count())]
-    print(params_list)
+        handler = loop.create_task(self._process_block(handler, block_ready, ready))
 
-    # pool.starmap_async(foo, [(1, res_queue), (3, res_queue)])
+        while True:
 
-    # processes = []
-    # for i in range(2):
-    #     processes.append(Process(target=foo, args=(i, res_queue)))
-    #     print(f'foo({i}, {res_queue})')
-    #     processes[i].start()
+            if self.stop.is_set():
+                
+                print('MINER - Stopped mining')
+                handler.cancel()
+                return 
+            
+            await ready.wait()
+            ready.clear()
 
-    p = Process(target=foo, args=(3, res_queue))
-    p.start()
+            # TODO: Create better algorithm to maximize rewards
+            txns = []
+            for _ in range(self.max_txns):
+                try:
+                    txns.append(self.mempool.pop(0))
 
-    # print(res_queue.get(True, timeout=5))
+                except IndexError:
+                    break   # No transactions left in mempool
 
-    p.join()
+            # Add Block reward
+            txns.append(Transaction('0.1', 'mine', (self.miner_addr, 10),
+                                        None, None))
 
-    print(res_queue.empty())
-    while not res_queue.empty():
-        print(res_queue.get(True, 5))
+            if blockchain.unconfirmed is None:
+                last_hash = blockchain.chain[-1]._hash
+            else:
+                potential_blocks = tree.get_end_children(
+                    blockchain.unconfirmed)
+                last_hash = max(potential_blocks,
+                                key=lambda x: x.get_level()).data._hash
 
-    # for p in processes:
-    #     p.join()
+            timestamp = str(time.time())
 
-    p.join()
-    print('Finished')
+            difficulty = self.get_difficulty()
+            block_data = f'{timestamp}{last_hash}{txns}'
+
+            with ProcessPoolExecutor() as pool, mp.Manager() as manager:
+
+                finished = manager.Event()
+
+                workers = [loop.run_in_executor(pool, self._find_hash,
+                                                block_data,
+                                                difficulty,
+                                                i,
+                                                finished)
+                           for i in range(mp.cpu_count())]
+
+                # worker = loop.run_in_executor(pool, self.find_hash,
+                #                      block_data,
+                #                      difficulty,
+                #                      0)
+
+                done, pending = await asyncio.wait(workers,
+                                                   return_when=asyncio.FIRST_COMPLETED)
+
+                for worker in workers:
+                    if worker in done:
+                        try:
+                            block_hash, proof = worker.result()
+                        
+                        except (FileNotFoundError, EOFError, BrokenPipeError) as e:
+                            print(f'ERROR - {e}')
+                            
+                        finished.set()
+
+                        self.block = Block(last_hash=last_hash,
+                                               txns=txns,
+                                               proof=proof,
+                                               timestamp=timestamp,
+                                               _hash=block_hash)
+                        
+                        self.block_ready = True
+
+                        print(f'MINER - Block created with hash {block_hash}')
+                        block_ready.set()
+
+                    if worker in pending:
+                        worker.cancel()
+
+    async def _process_block(self, handler, block_ready, ready):
+        
+        while True:
+            # Wait until the block is ready, then use it and reset the event
+            await block_ready.wait()
+            block = self.block
+            self.block = None
+            block_ready.clear()
+            
+            # Call the handler function
+            await handler(block)
+            print('INFO - Block processed')
+            
+            # Tell the miner that we processed the block and ready for another
+            # block.
+            ready.set()
+    
+async def handler(block):
+    print(block)
+
+async def main():
+    blockchain = Blockchain()
+    wallet = Wallet()
+
+    miner = Miner(wallet.addr)
+    await miner.mine(blockchain=blockchain, handler=handler)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

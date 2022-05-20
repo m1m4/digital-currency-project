@@ -1,25 +1,27 @@
 import asyncio
-import json
-from urllib import response
-
-import websockets
+from typing import Optional
 
 import block as blk
 from blockchain import Blockchain
-from networking.peer import Peer, client, server
+from miner import Miner
+from networking import Peer, client, server
 from wallet import Wallet
-
-#TODO: replace get_event_loop()
-loop = asyncio.get_event_loop()
-
 
 class Node(Peer):
 
     ALL = 0
     SINGLE = 1
 
-    def __init__(self, blockchain=None, wallet=None, miner=None) -> None:
-        super().__init__()
+    def __init__(self, port: Optional[int]=11111,
+                 max_outbound: int=-1,
+                 max_inbound: int=-1,
+                 blockchain: Optional[Blockchain]=None,
+                 wallet: Optional[Wallet]=None,
+                 miner: Optional[Miner]=None):
+        
+        super().__init__(port=port,
+                         max_outbound=max_outbound,
+                         max_inbound=max_inbound)
 
         if blockchain is None:
             self.blockchain = Blockchain()
@@ -33,48 +35,68 @@ class Node(Peer):
 
         self.miner = miner
 
+        # Stuff received from the network
+        self.recent_txns = []
+        self.recent_blocks = []
 
-        self.received = []  # Stuff received from the network
-        # print(self.commands)
-        
-    
-    async def start(self, port):
-        await super().start(port)
-        
-        # # Connect to as much connections as possible
+    async def _init_node(self, server):
+        await super()._init_node(server)
+
+        # Connect to as much connections as possible
         # self.scan_network()
-        
-        # #TODO: Check last few hashed and get the most trustworthy nodes
-        # #TODO: Split block requests to disperse network pressure
-        
-        heights = self.get_height()
-        
-        max_peer = max(heights, key=lambda x:x[1])
-        max_peer = 
-        
-        
 
-    async def request(self, data, broadcast=None, conn=None):
-        
-        if broadcast is None:
-            broadcast = Node.ALL
+        # TODO: Check last few hashed and get the most trustworthy nodes
+        # TODO: Split block requests to disperse network pressure
 
-        match broadcast:
+        if self.port == 11111:
+            await self.connect('ws://localhost:22222')
+
+        heights = await self.get_height()
+
+        try:
+            max_peer = max(heights, key=lambda x: x[1])[0]
+            response = await self.get_blocks(mode=Node.SINGLE, conn=max_peer)
+            blocks = response[0][1]
+            self.blockchain.add_blocks(blocks, update_file=False)
+
+        except ValueError as e:
+            print('WARNING - Not connected to any nodes')
+
+        # Run the miner module if added to the node
+        if not self.miner is None:
+            await self.miner.mine(blockchain=self.blockchain, handler=self.handle_block)
+
+    async def handle_block(self, block):
+        """ Process newly mined blocks. This method is invoked whenever a block
+        is mined.
+        """
+        self.blockchain.add_block(block, update_file=False)
+        await self.post_block(block)
+                
+
+    async def request(self, data, mode=None, conn=None):
+
+        if mode is None:
+            mode = Node.ALL
+
+        match mode:
             case Node.ALL:
                 await self.broadcast(self.pack(Node.GET, data))
                 results = await self.recvall(asyncio.ALL_COMPLETED)
+                if results is None:
+                    return []
 
             case Node.SINGLE:
                 if conn is None:
                     raise TypeError(
-                        "request() missing 1 required argument when broadcast=True: 'conn'")
-                await conn.send()
-                results = await conn.recv()
+                        "request() 'conn' argument is required when mode=Node.SINGLE")
+                await conn.send(self.pack(Node.GET, data))
+                results = [(conn, await conn.recv())]
 
         return results
 
     @client
-    async def post_block(self, block):
+    async def post_block(self, block: blk.Block):
         """Send the hash to all known peers. Since a block might be big (>1mb)
         we send its hash instead of all the block to let other know we have that
         block.
@@ -82,6 +104,8 @@ class Node(Peer):
         Args:
             block (Block): The block.
         """
+        print(f'INFO - Posting block')
+
         data = self.pack(Node.POST,
                          {'command': 'post_block', 'hash': block._hash})
         await self.broadcast(data)
@@ -95,7 +119,7 @@ class Node(Peer):
             params (_type_): _description_
         """
         block_hash = params.get('hash')
-        
+
         if block_hash is None:
             print(f'INFO {conn.str_addr} - Didnt receive hash for post_block')
 
@@ -103,46 +127,60 @@ class Node(Peer):
 
             # TODO: change port here
             server_conn = await self.connect((conn.addr[0], 11111))
+            
+            # If we already made connection with that computer
+            if server_conn is None:
+                server_conn = self.find_conn(conn.addr[0], 11111)
 
             response = await self.get_block(block_hash, mode=Node.SINGLE, conn=server_conn)
-            response_dict = json.loads(response)
-            if response_dict['type'] != 'okay':
-                print(f'WARNING - did not get reqested block. message:\
-{response}')
-                return
             
-            block_dict = response_dict['data']['block']
-            block = blk.from_dict(block_dict)
+            #TODO: choose the most common block
+            if response:
+                block = response[0][1]
+            else:
+                print(f'WARNING - did not get reqested block. response: {response}')
+                return
             
             print(f'INFO {conn.str_addr} - Got block with hash {block._hash}')
             self.blockchain.add_block(block)
-            
-            # TODO: have a list of known blocks
-            # await self.post_block(block)
-        
-        else: 
+
+            if not block._hash in self.recent_blocks:
+                self.recent_blocks.append(block._hash)
+                await self.post_block(block)
+
+        else:
             print(f'INFO {conn.str_addr} - Got existing block')
 
-
-
     @client
-    async def post_txn(self, txn):
+    async def post_txn(self, txn: blk.Transaction):
+
+        print('INFO - Posting transaction')
+
+        if not self.miner is None:
+            self.miner.add_txn(txn)
+
         data = self.pack(Node.POST,
                          {'command': 'post_txn', 'txn': dict(txn._asdict())})
+
         await self.broadcast(data)
 
     @server
     async def _post_txn(self, conn, params):
-        
-        #TODO: have a list of known txns
-        if self.miner is None:
-            print(f'INFO {conn.str_addr} - Got transaction')
-            # await self.post_txn(txn)
-        else:
-            raise NotImplementedError('mempool not implemented yet.')
+
+        print(f'INFO {conn.str_addr} - Got transaction')
+
+        txn = blk.to_dict(params.get('txn'))
+
+        # TODO: replace transactions with their hash
+        if not txn in self.recent_txns:
+            self.recent_txns.append(txn)
+            await self.post_txn(txn)
 
     @client
-    async def get_block(self, block_hash=None, height=None, mode=None, conn=None):
+    async def get_block(self, block_hash=None,
+                        height=None,
+                        mode=None,
+                        conn=None):
         """Requests a block from the blockchain from all connected peers. There
         must be at least 1 argument that identifies the block
 
@@ -150,7 +188,16 @@ class Node(Peer):
             block_hash (str, optional): The block's hash.
             height (str/int, optional): The block's height in the blockchain.
             not recommended since every Node might send a different block.
+            mode (int): The mode of get_block. Node.ALL broadcasts while
+            Node.SINGLE sends only to 1 node. Defaults to Node.ALL
+            conn (Peer): The peer/node to send to. Raises TypeError when mode is
+            Node.SINGLE and conn is none
         """
+
+        if conn is None:
+            print(f'INFO - Requesting block')
+        else:
+            print(f'INFO {conn.str_addr} - Requesting block')
 
         if mode is None:
             mode = Node.ALL
@@ -162,17 +209,25 @@ class Node(Peer):
         elif not block_hash is None:
             request['height'] = height
 
-        if mode == Node.ALL:
-            response = await self.request(request)
-        elif mode == Node.SINGLE:
-            await conn.send(self.pack(Node.GET, request))
-            response = await conn.recv()
+        try:
+            response = await self.request(request, mode=mode, conn=conn)
+        except TypeError:
+            print('ERROR - mode is Node.SINGLE but no peer object was passed')
+            return
+        
+        response_final = [(r[0], blk.to_block(r[1]['data']['block']))
+                            for r in response]
+        
+        return response_final
 
         # TODO: fetch results and check validity of blocks
-        return response
 
     @client
-    async def get_blocks(self, hashes=None, start_height=None, end_height=None):
+    async def get_blocks(self, hashes=None,
+                         start_height=None,
+                         end_height=None,
+                         mode=None,
+                         conn=None):
         """Requests blocks from the blockchain from all connected peers. If no
         identifier is given, it will ask for all blocks.
 
@@ -182,7 +237,15 @@ class Node(Peer):
             start_height (str/int, optional): End height for the blocks
         """
 
-        request = {'command': self.get_block.webname}
+        if conn is None:
+            print(f'INFO - Requesting blocks')
+        else:
+            print(f'INFO {conn.str_addr} - Requesting blocks')
+
+        if mode is None:
+            mode = Node.ALL
+
+        request = {'command': self.get_blocks.webname}
 
         if not hashes is None:
             request['hashes'] = hashes
@@ -190,14 +253,26 @@ class Node(Peer):
             if not start_height is None:
                 request['start_height'] = start_height
             if not end_height is None:
-                request['start_height'] = start_height
+                request['end_height'] = end_height
 
         # TODO: fetch results and check validity of blocks
-        response = await self.request(request)
-        return response
+        try:
+            #TODO: return responses that returned an error
+            response = await self.request(request, mode=mode, conn=conn)
+            response_final = [(r[0], [blk.to_block(block)
+                                      for block in r[1]['data']['blocks']])
+                              for r in response]
+        except TypeError as e:
+            print(f'ERROR - {e}')
+            return
+
+        return response_final
 
     @client
     async def get_nodes(self):
+
+        print(f'INFO - Requesting nodes')
+
         response = await self.request({'command': self._get_nodes.webname})
 
         # TODO: connect to the new nodes
@@ -206,29 +281,37 @@ class Node(Peer):
     @client
     async def get_height(self):
 
+        print(f'INFO - Requesting height')
+
         responses = await self.request({'command': self._get_height.webname})
-    
-        # Remove all the message wrappers and return only the list of the peers 
+
+        # Remove all the message wrappers and return only the list of the peers
         # with the height
         response_new = []
         for response in responses:
             try:
-                response_new.append((response[0], response[1]['data']['height']))
+                response_new.append(
+                    (response[0], response[1]['data']['height']))
             except KeyError:
                 continue
-        
+
         return response_new
 
     @client
     async def get_hash(self, height):
+
+        print(f'INFO - Requesting hash of height {height}')
 
         return await self.request({'command': self._get_hash.webname,
                                    'height': height})
 
     @client
     async def get_addr(self, conn):
+
+        print(f'INFO {conn.str_addr} - Requesting wallet address')
+
         return await self.request({'command': self._get_height.webname},
-                                  broadcast=False, conn=conn)
+                                  mode=False, conn=conn)
 
     @server
     async def _get_block(self, params):
@@ -239,8 +322,9 @@ class Node(Peer):
         if not block_hash is None:
             block = self.blockchain.get_block(block_hash)
 
+            # TODO: replace with an error response
             if block is None:
-                block = 'not found'
+                return self.pack(Node.ERROR, {'message': 'block not found'})
 
         elif not height is None:
             block = self.blockchain.chain[height - 1]
@@ -324,34 +408,31 @@ class Node(Peer):
 
 
 async def main():
-
-    # IP = '127.0.0.1'
-    node = Node()
-    # server = await websockets.serve(node.init_connection, IP, 11111)
-    # print(f'Server started. Running on ws://{IP}:11111')
     
-    await node.start(port=11111)
-
-    await node.connect('ws://localhost:22222')
-    # await node.connect('ws://localhost:33333')
-    # print('Posting block... ')
-    height = await node.get_height()
-    print(height)
-    # print('Posting new Trasaction...')
-    # node.wallet.debug_generate_outputs(10, 1)
-    # txn = node.wallet.send(0, ('mima', 10))
+    wallet = Wallet()
+    miner = Miner(wallet.addr)
+    node = Node(port=11111, wallet=wallet, miner=miner)
     
-    # await node.post_txn(txn)
-    # await peer.disconnect(3)
+    asyncio.create_task(delay_close_miner(miner.stop))
+    await node.start()
 
-    await node._server.wait_closed()
-
-
+async def delay_close_miner(event):
+    await asyncio.sleep(10)
+    event.set()
+    
 if __name__ == '__main__':
-
+    
+    # IP = '127.0.0.1'
     try:
-        asyncio.run(main())
 
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print('Shutting Down...')
-        loop.close()
+        print('Shutting down...')
+        
+    
+            
+        
+    
+        
+
+    
