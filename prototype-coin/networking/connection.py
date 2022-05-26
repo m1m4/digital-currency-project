@@ -47,8 +47,9 @@ class PeerConnection():
             
             await self.close()
         
-        except ConnectionClosedError:
+        except (ConnectionClosedError, ConnectionClosedOK):
             await self.close()
+        
         
         finally:
             print(f'INFO - Disconnected from {self.str_addr}')
@@ -66,10 +67,14 @@ class PeerConnection():
         if not raw:
             data = json.dumps(data)
 
-        print(f'INFO {self.str_addr} - Sending {data}')
-        await self.websocket.send(data)
+        # print(f'INFO {self.str_addr} - Sending data')
+        try:
+            await self.websocket.send(data)
+        
+        except ConnectionClosedError:
+            await self.close()
     
-    async def recv(self, timeout=2):
+    async def recv(self, raw=False, timeout=2):
         """Recieves data from the other end of this connection. Used to block an
         asynchronous function until a reply is recieved.
 
@@ -78,8 +83,9 @@ class PeerConnection():
         """
         
         try:
+            
             response = await asyncio.wait_for(self.websocket.recv(), timeout=timeout)
-            return response
+            return json.loads(response) if not raw else response
         except ConnectionClosedError:
             await self.close()
             return
@@ -91,6 +97,8 @@ class PeerConnection():
     async def close(self):
         """Closes this connection.
         """
+        
+        print(f'INFO {self.str_addr} - disconnecting')
         await self.websocket.close()
     
     @functools.cached_property
