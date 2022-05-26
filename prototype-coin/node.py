@@ -12,11 +12,12 @@ class Node(Peer):
     ALL = 0
     SINGLE = 1
 
+    #TODO: choose port number for all nodes
     def __init__(self, port: Optional[int]=11111,
                  max_outbound: int=-1,
                  max_inbound: int=-1,
                  blockchain: Optional[Blockchain]=None,
-                 wallet: Optional[Wallet]=None,
+                 blockchain_dir: Optional[str]=None,
                  miner: Optional[Miner]=None):
         
         super().__init__(port=port,
@@ -24,14 +25,9 @@ class Node(Peer):
                          max_inbound=max_inbound)
 
         if blockchain is None:
-            self.blockchain = Blockchain()
+            self.blockchain = Blockchain(data_dir=blockchain_dir)
         else:
             self.blockchain = blockchain
-
-        if wallet is None:
-            self.wallet = Wallet()
-        else:
-            self.wallet = wallet
 
         self.miner = miner
 
@@ -39,29 +35,42 @@ class Node(Peer):
         self.recent_txns = []
         self.recent_blocks = []
 
-    async def _init_node(self, server):
-        await super()._init_node(server)
-
-        # Connect to as much connections as possible
-        # self.scan_network()
-
+    async def _init_node(self, server, *addrs):
         # TODO: Check last few hashed and get the most trustworthy nodes
         # TODO: Split block requests to disperse network pressure
-
-        if self.port == 11111:
-            await self.connect('ws://localhost:22222')
-
-        heights = await self.get_height()
-
+        
+        await super()._init_node(server)
+        
+        # Connect to as much connections as possible
+        # self.scan_network()
+        
+        for addr in addrs:
+            await self.connect(addr)
+        
+        print('INFO - Loading the blockchain from disk...')
+        
         try:
-            max_peer = max(heights, key=lambda x: x[1])[0]
-            response = await self.get_blocks(mode=Node.SINGLE, conn=max_peer)
-            blocks = response[0][1]
-            self.blockchain.add_blocks(blocks, update_file=False)
+            result = self.blockchain.load()
+            
+            # If not new blocks were added, download the blockchain
+            if not result:
+                raise FileNotFoundError
+            
+        except FileNotFoundError:
+            print('WARNING - No blockchain is found at the set location. Downloading blockchain from the web')
+            
+            try:
+                heights = await self.get_height()
+                max_peer = max(heights, key=lambda x: x[1])[0]
+                response = await self.get_blocks(mode=Node.SINGLE, conn=max_peer)
+                blocks = response[0][1]
+                self.blockchain.add_blocks(blocks, update_file=False)
 
-        except ValueError as e:
-            print('WARNING - Not connected to any nodes')
-
+            except ValueError as e:
+                print('WARNING - Not connected to any nodes')
+            
+        # Create the blockchain on disk after the blocks were downloaded
+        self.blockchain.save()
         # Run the miner module if added to the node
         if not self.miner is None:
             await self.miner.mine(blockchain=self.blockchain, handler=self.handle_block)
@@ -70,7 +79,7 @@ class Node(Peer):
         """ Process newly mined blocks. This method is invoked whenever a block
         is mined.
         """
-        self.blockchain.add_block(block, update_file=False)
+        self.blockchain.add_block(block, update_file=True)
         await self.post_block(block)
                 
 
@@ -142,7 +151,7 @@ class Node(Peer):
                 return
             
             print(f'INFO {conn.str_addr} - Got block with hash {block._hash}')
-            self.blockchain.add_block(block)
+            self.blockchain.add_block(block, update_file=True)
 
             if not block._hash in self.recent_blocks:
                 self.recent_blocks.append(block._hash)
@@ -169,7 +178,9 @@ class Node(Peer):
 
         print(f'INFO {conn.str_addr} - Got transaction')
 
-        txn = blk.to_dict(params.get('txn'))
+        txn_dict = params.get('txn')
+        
+        txn = blk.to_txn(txn_dict)
 
         # TODO: replace transactions with their hash
         if not txn in self.recent_txns:
@@ -305,13 +316,13 @@ class Node(Peer):
         return await self.request({'command': self._get_hash.webname,
                                    'height': height})
 
-    @client
-    async def get_addr(self, conn):
+    # @client
+    # async def get_addr(self, conn):
 
-        print(f'INFO {conn.str_addr} - Requesting wallet address')
+    #     print(f'INFO {conn.str_addr} - Requesting wallet address')
 
-        return await self.request({'command': self._get_height.webname},
-                                  mode=False, conn=conn)
+    #     return await self.request({'command': self._get_height.webname},
+    #                               mode=False, conn=conn)
 
     @server
     async def _get_block(self, params):
@@ -401,33 +412,24 @@ class Node(Peer):
 
         return self.pack(Node.OKAY, {'hash': _hash})
 
-    @server
-    async def _get_addr(self, params):
+    # @server
+    # async def _get_addr(self, params):
 
-        return self.pack(Node.OKAY, {'address': self.wallet.addr})
+    #     return self.pack(Node.OKAY, {'address': self.wallet.addr})
 
 
 async def main():
     
+    
     wallet = Wallet()
     miner = Miner(wallet.addr)
-    node = Node(port=11111, wallet=wallet, miner=miner)
-    
-    asyncio.create_task(delay_close_miner(miner.stop))
-    await node.start()
+    node = Node(port=11111, miner=miner)
+    await node.start('ws://localhost:22222')
 
-async def delay_close_miner(event):
-    await asyncio.sleep(10)
-    event.set()
     
 if __name__ == '__main__':
     
-    # IP = '127.0.0.1'
-    try:
-
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print('Shutting down...')
+    asyncio.run(main())
         
     
             
