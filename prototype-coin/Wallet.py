@@ -21,12 +21,12 @@ class Wallet:
             mnemonic_words (str): mnomic words to make the keys from
         """
 
-        mnemo = Mnemonic("english")
+        mnemonic = Mnemonic("english")
 
         if mnemonic_words is None:
-            mnemonic_words = mnemo.generate(strength=256)
+            mnemonic_words = mnemonic.generate(strength=256)
 
-        seed = mnemo.to_seed(mnemonic_words)
+        seed = mnemonic.to_seed(mnemonic_words)
 
         # DO NOT share this key
         master_key = bip32utils.BIP32Key.fromEntropy(seed)
@@ -89,7 +89,6 @@ class Wallet:
 
             *recv_addrs (tuple): tuples containing addresses to send to with 
             the amount specified
-
 
         Raises:
             NotEnoughFundsError: This means the user tried to send more funds 
@@ -218,3 +217,14 @@ def generate_invalid_address():
     phrase = str(random.random() + random.randint(-10, 10)) * 128
     key = bip32utils.BIP32Key.fromEntropy(phrase.encode())
     return key.Address()
+
+
+def main():
+    wallet = Wallet()
+    print(wallet.pub_k)
+    print(wallet.priv_k)
+    print(wallet.addr)
+
+
+if __name__ == "__main__":
+    main()
