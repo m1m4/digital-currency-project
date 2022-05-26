@@ -140,7 +140,9 @@ dmypy.json
 /jokes/
 
 idea/
-/Blockchain
+/blockchain
+/blockchain2
+mnemonic.txt
 /screenshots
 test.py
 
