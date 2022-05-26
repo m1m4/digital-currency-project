@@ -141,7 +141,8 @@ dmypy.json
 
 idea/
 /blockchain
-/blockchain2
+metadata.csv
+txns.csv
 mnemonic.txt
 /screenshots
 test.py
