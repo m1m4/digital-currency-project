@@ -19,15 +19,11 @@ class Miner:
 
         self.miner_addr = miner_addr
 
-        # TODO: recplace with queue
-        self.block = None
-
-        self.block_ready = False
         self.stop = asyncio.Event()
 
     def get_difficulty(self):
         # TODO: change difficulty to dynamic
-        return 5
+        return 4
 
     def add_txn(self, txn: Transaction):
         """Adds a transaction to the memory pool. will not add duplicate 
@@ -69,14 +65,6 @@ class Miner:
     async def mine(self, blockchain: Blockchain, handler: Callable[[Block], Any]):
 
         loop = asyncio.get_running_loop()
-        
-        block_ready = asyncio.Event()
-        ready = asyncio.Event()
-        ready.set()
-
-        # Create handler for created blocks
-        handler = loop.create_task(
-            self._process_block(handler, block_ready, ready))
 
         while True:
             if self.stop.is_set():
@@ -84,9 +72,6 @@ class Miner:
                 print('MINER - Stopped mining')
                 handler.cancel()
                 return
-
-            await ready.wait()
-            ready.clear()
             
             txns = []
             for _ in range(self.max_txns):
@@ -100,7 +85,7 @@ class Miner:
             txns.append(Transaction('0.1', 'mine', [self.miner_addr, 10],
                                     None, None))
 
-            if blockchain.unconfirmed is None:
+            if blockchain.unconfirmed.data is None:
                 last_hash = blockchain.chain[-1]._hash
             else:
                 potential_blocks = tree.get_end_children(
@@ -139,41 +124,18 @@ class Miner:
 
                         finished.set()
 
-                        self.block = Block(last_hash=last_hash,
+                        block = Block(last_hash=last_hash,
                                            txns=txns,
                                            proof=proof,
                                            timestamp=timestamp,
                                            _hash=block_hash)
 
-                        self.block_ready = True
-
                         print(f'MINER - Block created with hash {block_hash}')
-                        block_ready.set()
+                        await handler(block)
 
                     if worker in pending:
                         worker.cancel()
-
-    async def _process_block(self, handler, block_ready, ready):
-
-        while True:
-            # Wait until the block is ready, then use it and reset the event
-            await block_ready.wait()
-            block = self.block
-            self.block = None
-            block_ready.clear()
-
-            # Call the handler function
-            await handler(block)
-            print('INFO - Block processed')
-
-            # Tell the miner that we processed the block and ready for another
-            # block.
-            ready.set()
-
-
-async def handler(block):
-    print(block)
-
+                        
 
 async def main():
     blockchain = Blockchain()
