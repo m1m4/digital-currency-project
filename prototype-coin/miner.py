@@ -19,11 +19,7 @@ class Miner:
 
         self.miner_addr = miner_addr
 
-        self.stop = asyncio.Event()
-
-    def get_difficulty(self):
-        # TODO: change difficulty to dynamic
-        return 4
+        self.stop = asyncio.Event() # Stops mining when set
 
     def add_txn(self, txn: Transaction):
         """Adds a transaction to the memory pool. will not add duplicate 
@@ -38,7 +34,27 @@ class Miner:
         if not txn in self.mempool:
             self.mempool.append(txn)
 
-    def _find_hash(self, data, difficulty, offset, found_event):
+    def _find_hash(self, data: str, difficulty: int, offset: int, found_event: mp.Event):
+        
+        """Finds the hash for a block with given difficulty. Should be used in a
+        multiprocessing pool.
+
+        Args:
+            data (str): The base data (or Block)
+            
+            difficulty (int): The difficulty of the block
+            
+            offset (int): Used when multiple processes are mining. Every
+            process should have a different offeset. Offsets for each process
+            should look like this when n is the number of cores the cpu have:
+            0,1,2,...,n-1.
+             
+            found_event (multiproccessing.Event): Pass to tell the other cores
+            to stop whenever one of them has found the hash
+
+        Returns:
+            Tuple[str, str]: Returns the hash it found and the proof
+        """
 
         # print(f'PID {mp.current_process().pid}: Searching for hash')
 
@@ -63,7 +79,20 @@ class Miner:
         # TODO: Start mining a new block if a new block is received
 
     async def mine(self, blockchain: Blockchain, handler: Callable[[Block], Any]):
+        """Starts mining blocks and calls handler(block) whenever a new block is
+        mined. To stop mining, set self.stop.
 
+        Args:
+            blockchain (Blockchain): The blockchain to work on mining. 
+            Automatically choose the best chain to work on.
+            
+            handler (Callable[[Block], Any]): Called when a new block is mined
+        """
+
+        # Don't mine if theres no address to mine to
+        if self.miner_addr is None:
+            return
+        
         loop = asyncio.get_running_loop()
 
         while True:
@@ -95,7 +124,7 @@ class Miner:
 
             timestamp = str(time.time())
 
-            difficulty = self.get_difficulty()
+            difficulty = blockchain.difficulty
             block_data = f'{timestamp}{last_hash}{txns}'
 
             # Run all proccesses in the computer to find hash
